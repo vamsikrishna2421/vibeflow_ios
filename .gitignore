@@ -29,3 +29,15 @@ yarn-error.*
 
 # misc
 coverage/
+
+# local agent tooling (ruflo / claude-flow) — not part of the app
+.claude-flow/
+.claude/agents/
+.claude/commands/
+.claude/helpers/
+.claude/skills/
+.swarm/
+.hive-mind/
+.roo/
+.roomodes
+ruflo.config.*
