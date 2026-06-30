@@ -1,0 +1,98 @@
+{
+  "expo": {
+    "name": "VibeFlow",
+    "slug": "vibeflow",
+    "scheme": "vibeflow",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B0A14",
+    "runtimeVersion": "1",
+    "updates": {
+      "url": "https://u.expo.dev/REPLACE_WITH_PROJECT_ID",
+      "requestHeaders": {
+        "expo-channel-name": "production"
+      },
+      "fallbackToCacheTimeout": 0
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.vibeflow.mobile",
+      "buildNumber": "1.0.0",
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.vibeflow.mobile"
+        ]
+      },
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleDisplayName": "VibeFlow",
+        "NSMicrophoneUsageDescription": "VibeFlow turns your voice into text entirely on this device.",
+        "NSSpeechRecognitionUsageDescription": "Speech is recognised on-device; your voice never leaves your phone.",
+        "UISupportedInterfaceOrientations": [
+          "UIInterfaceOrientationPortrait"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.vibeflow.mobile",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0A14",
+        "foregroundImage": "./assets/adaptive-icon.png"
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET"
+      ]
+    },
+    "plugins": [
+      "@bacons/apple-targets",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "VibeFlow uses the microphone to turn your voice into text on-device.",
+          "speechRecognitionPermission": "VibeFlow uses on-device speech recognition so your voice never leaves your phone."
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-sqlite",
+        {
+          "useSQLCipher": true
+        }
+      ],
+      "expo-notifications",
+      "expo-localization",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0B0A14",
+          "image": "./assets/splash.png",
+          "imageWidth": 180
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "17.0"
+          },
+          "android": {
+            "minSdkVersion": 24
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_WITH_PROJECT_ID"
+      }
+    },
+    "owner": "lekkala2421"
+  }
+}

@@ -1,0 +1,82 @@
+workflows:
+  ios-testflight:
+    name: VibeFlow — iOS TestFlight
+    max_build_duration: 90
+    instance_type: mac_mini_m2
+
+    environment:
+      node: latest
+      xcode: latest
+      cocoapods: default
+      groups:
+        - ios-creds    # Codemagic variable group: ASC API key id/issuer/private key
+      vars:
+        BUNDLE_ID: com.vibeflow.mobile
+        # The keyboard extension target ships in the same IPA and needs its own
+        # provisioning profile; app-store-connect --create handles both bundle ids.
+        KEYBOARD_BUNDLE_ID: com.vibeflow.mobile.keyboard
+
+    triggering:
+      events: []   # manual builds only — start from the Codemagic dashboard
+
+    scripts:
+      - name: Install dependencies
+        script: npm install
+
+      - name: Apply patches
+        script: npx patch-package
+
+      - name: Auto-increment build number BEFORE prebuild
+        script: |
+          # Expo bakes CFBundleVersion into the Xcode project during prebuild, so the
+          # build number MUST be set in app.json first. Codemagic's monotonic
+          # $BUILD_NUMBER + 100 keeps it always-growing (mirrors the LUCY pipeline).
+          NUM=$(( ${BUILD_NUMBER:-1} + 100 ))
+          BUILD_NUM="1.0.$NUM"
+          node -e "const fs=require('fs');const a=JSON.parse(fs.readFileSync('app.json','utf8'));a.expo.ios=a.expo.ios||{};a.expo.android=a.expo.android||{};a.expo.ios.buildNumber='$BUILD_NUM';a.expo.android.versionCode=$NUM;fs.writeFileSync('app.json',JSON.stringify(a,null,2));console.log('iOS buildNumber=',a.expo.ios.buildNumber);"
+
+      - name: Expo prebuild (generate native iOS project + keyboard target)
+        script: npx expo prebuild --platform ios --non-interactive
+
+      - name: Install Pods
+        script: |
+          cd ios
+          pod install --repo-update
+
+      - name: Set up keychain
+        script: keychain initialize
+
+      - name: Fetch or create App Store signing files (app + keyboard extension)
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          app-store-connect fetch-signing-files "$KEYBOARD_BUNDLE_ID" --type IOS_APP_STORE --create
+
+      - name: Add certificates to keychain
+        script: keychain add-certificates
+
+      - name: Apply signing profiles to Xcode project
+        script: xcode-project use-profiles
+
+      - name: Build IPA
+        script: |
+          WORKSPACE=$(find ios -name "*.xcworkspace" -maxdepth 1 | head -1)
+          SCHEME=$(find ios -name "*.xcodeproj" -maxdepth 1 | head -1 | xargs basename | sed 's/.xcodeproj//')
+          echo "Using workspace: $WORKSPACE | scheme: $SCHEME"
+          xcode-project build-ipa --workspace "$WORKSPACE" --scheme "$SCHEME" --config Release
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true
+      email:
+        recipients:
+          - vamsy.24@gmail.com
+        notify:
+          success: true
+          failure: true
