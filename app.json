@@ -22,7 +22,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.vibeflow.mobile",
-      "buildNumber": "1.0.3",
+      "buildNumber": "1.0.4",
       "appleTeamId": "CJ8SV692GN",
       "entitlements": {
         "com.apple.security.application-groups": [
@@ -34,6 +34,7 @@
         "CFBundleDisplayName": "VibeFlow",
         "NSMicrophoneUsageDescription": "VibeFlow uses the microphone to turn your voice into text on-device.",
         "NSSpeechRecognitionUsageDescription": "VibeFlow uses on-device speech recognition so your voice never leaves your phone.",
+        "NSPhotoLibraryUsageDescription": "VibeFlow does not access your photos. This notice is required by iOS because a bundled system component links Apple's Photos framework; no photo data is ever read or uploaded.",
         "UISupportedInterfaceOrientations": [
           "UIInterfaceOrientationPortrait"
         ]
