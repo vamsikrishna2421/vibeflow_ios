@@ -10,7 +10,7 @@
     "backgroundColor": "#0B0A14",
     "runtimeVersion": "1",
     "updates": {
-      "url": "https://u.expo.dev/REPLACE_WITH_PROJECT_ID",
+      "url": "https://u.expo.dev/c9f0a4af-b79f-4ef5-887f-3f8a67ff31c5",
       "requestHeaders": {
         "expo-channel-name": "production"
       },
@@ -23,6 +23,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.vibeflow.mobile",
       "buildNumber": "1.0.0",
+      "appleTeamId": "CJ8SV692GN",
       "entitlements": {
         "com.apple.security.application-groups": [
           "group.com.vibeflow.mobile"
@@ -31,8 +32,8 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "CFBundleDisplayName": "VibeFlow",
-        "NSMicrophoneUsageDescription": "VibeFlow turns your voice into text entirely on this device.",
-        "NSSpeechRecognitionUsageDescription": "Speech is recognised on-device; your voice never leaves your phone.",
+        "NSMicrophoneUsageDescription": "VibeFlow uses the microphone to turn your voice into text on-device.",
+        "NSSpeechRecognitionUsageDescription": "VibeFlow uses on-device speech recognition so your voice never leaves your phone.",
         "UISupportedInterfaceOrientations": [
           "UIInterfaceOrientationPortrait"
         ]
@@ -90,7 +91,24 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "REPLACE_WITH_PROJECT_ID"
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "bundleIdentifier": "com.vibeflow.mobile.keyboard",
+                  "targetName": "VibeFlowKeyboard",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.vibeflow.mobile"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "projectId": "c9f0a4af-b79f-4ef5-887f-3f8a67ff31c5"
       }
     },
     "owner": "lekkala2421"
