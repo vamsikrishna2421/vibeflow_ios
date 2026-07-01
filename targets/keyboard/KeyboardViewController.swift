@@ -76,10 +76,18 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        recordKeyboardState()
         guard built else { return }
         autoInsertIfReturned()
         updateSuggestions()
         updateShiftForContext()
+    }
+
+    /// Report to the app (via the App Group) that the keyboard has run and whether
+    /// it currently has Full Access — powers the guided setup screen's live checks.
+    private func recordKeyboardState() {
+        store?.set("true", forKey: "kbd_installed")
+        store?.set(hasFullAccess ? "true" : "false", forKey: "kbd_full_access")
     }
 
     override func traitCollectionDidChange(_ previous: UITraitCollection?) {
