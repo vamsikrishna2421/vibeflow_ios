@@ -577,10 +577,21 @@ final class KeyboardViewController: UIInputViewController {
 
     private struct Dictation: Decodable { let id: Double; let text: String; var pinned: Bool? }
 
-    private func latest() -> String { store?.string(forKey: "latest_dictation") ?? "" }
+    /// Force a fresh cross-process read from the App Group. The app writes these keys
+    /// from its own process, and a plain UserDefaults instance can hand back a stale
+    /// cache — which silently broke the round-trip (keyboard never saw the new dictation).
+    private func groupString(_ key: String) -> String? {
+        CFPreferencesAppSynchronize(appGroup as CFString)
+        if let v = CFPreferencesCopyAppValue(key as CFString, appGroup as CFString) as? String {
+            return v
+        }
+        return store?.string(forKey: key)
+    }
+
+    private func latest() -> String { groupString("latest_dictation") ?? "" }
 
     private func history() -> [Dictation] {
-        guard let json = store?.string(forKey: "history_json"),
+        guard let json = groupString("history_json"),
               let data = json.data(using: .utf8),
               let list = try? JSONDecoder().decode([Dictation].self, from: data) else { return [] }
         return list.sorted { $0.id > $1.id }
@@ -589,7 +600,7 @@ final class KeyboardViewController: UIInputViewController {
     /// Load the user + starter romanized-Telugu/Hindi words (written by the app) and
     /// teach them to iOS's spell checker so they're never flagged/autocorrected.
     private func loadLearnedWords() {
-        guard let json = store?.string(forKey: "kbd_learned_words"),
+        guard let json = groupString("kbd_learned_words"),
               let data = json.data(using: .utf8),
               let list = try? JSONDecoder().decode([String].self, from: data) else { return }
         learnedWords = list

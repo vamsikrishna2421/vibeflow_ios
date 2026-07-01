@@ -46,6 +46,12 @@ export function useDictation({ lang, onDeviceOnly, onFinal }: UseDictationOption
     onFinalRef.current = onFinal;
   }, [onFinal]);
 
+  // Cold-start guard: SFSpeechRecognizer frequently fires "no speech" on the very
+  // first start after launch (audio engine not warmed yet). We retry once before
+  // surfacing it — that's the "worked on the second tap" behaviour, automated.
+  const retriedRef = useRef(false);
+  const startRef = useRef<((isRetry: boolean) => Promise<void>) | null>(null);
+
   useSpeechRecognitionEvent('start', () => setState('listening'));
 
   useSpeechRecognitionEvent('result', (event: any) => {
@@ -67,7 +73,17 @@ export function useDictation({ lang, onDeviceOnly, onFinal }: UseDictationOption
   });
 
   useSpeechRecognitionEvent('error', (event: any) => {
-    setError(event?.message ?? event?.error ?? 'Speech recognition error');
+    const msg = event?.message ?? event?.error ?? 'Speech recognition error';
+    const isNoSpeech =
+      /no.?speech/i.test(String(msg)) || event?.error === 'no-speech';
+    if (isNoSpeech && !retriedRef.current && !finalRef.current && !partialRef.current) {
+      retriedRef.current = true;
+      setTimeout(() => {
+        startRef.current?.(true);
+      }, 300);
+      return;
+    }
+    setError(msg);
     setState('error');
   });
 
@@ -81,31 +97,40 @@ export function useDictation({ lang, onDeviceOnly, onFinal }: UseDictationOption
     if (full) onFinalRef.current(full);
   });
 
-  const start = useCallback(async () => {
-    setError(null);
-    finalRef.current = '';
-    partialRef.current = '';
-    setPartial('');
-    try {
-      const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      if (!perm.granted) {
-        setError('Microphone and speech-recognition permission are required.');
+  const start = useCallback(
+    async (isRetry = false) => {
+      setError(null);
+      if (!isRetry) retriedRef.current = false;
+      finalRef.current = '';
+      partialRef.current = '';
+      setPartial('');
+      try {
+        const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+        if (!perm.granted) {
+          setError('Microphone and speech-recognition permission are required.');
+          setState('error');
+          return;
+        }
+        ExpoSpeechRecognitionModule.start({
+          lang,
+          interimResults: true,
+          continuous: true,
+          requiresOnDeviceRecognition: onDeviceOnly,
+          addsPunctuation: true,
+          volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
+        });
+      } catch (e: any) {
+        setError(e?.message ?? 'Could not start dictation.');
         setState('error');
-        return;
       }
-      ExpoSpeechRecognitionModule.start({
-        lang,
-        interimResults: true,
-        continuous: true,
-        requiresOnDeviceRecognition: onDeviceOnly,
-        addsPunctuation: true,
-        volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
-      });
-    } catch (e: any) {
-      setError(e?.message ?? 'Could not start dictation.');
-      setState('error');
-    }
-  }, [lang, onDeviceOnly]);
+    },
+    [lang, onDeviceOnly],
+  );
+
+  // Let the error handler trigger the one-shot cold-start retry.
+  useEffect(() => {
+    startRef.current = start;
+  }, [start]);
 
   const stop = useCallback(() => {
     try {

@@ -64,7 +64,7 @@ export function TalkScreen() {
       if (fromKeyboardRef.current) {
         fromKeyboardRef.current = false;
         addDictation(next.trim());
-        flashToast('Saved — switch back to the keyboard and it types automatically');
+        flashToast('Saved ✓  Tap ‹ back (top-left) — the keyboard types it in automatically');
         return;
       }
       if (settings.autoCopy) {
@@ -106,7 +106,11 @@ export function TalkScreen() {
   useEffect(() => {
     if (recordNonce > 0 && dictation.state === 'idle') {
       fromKeyboardRef.current = true;
-      dictation.start();
+      // Small warm-up delay: on a cold launch from the keyboard, the audio engine
+      // needs a moment or SFSpeechRecognizer reports "no speech". (The hook also
+      // retries once as a backstop.)
+      const t = setTimeout(() => dictation.start(), 500);
+      return () => clearTimeout(t);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordNonce]);
