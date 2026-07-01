@@ -63,6 +63,10 @@ final class KeyboardViewController: UIInputViewController {
     private var correctedOnce: Set<String> = []
     private var refusedCorrections: Set<String> = []
 
+    // Romanized-Telugu/Hindi + user words the keyboard should treat as valid (never
+    // autocorrect away) and offer as completions — e.g. "avunu", "kadu", "sare".
+    private var learnedWords: [String] = []
+
     // MARK: Views / tracking
     private var suggestionsStack: UIStackView!
     private var rowsStack: UIStackView!
@@ -90,6 +94,7 @@ final class KeyboardViewController: UIInputViewController {
         buildLayout()
         rebuildKeys()
         built = true
+        loadLearnedWords()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -97,6 +102,7 @@ final class KeyboardViewController: UIInputViewController {
         recordKeyboardState()
         guard built else { return }
         autoInsertIfReturned()
+        loadLearnedWords()
         updateSuggestions()
         updateShiftForContext()
     }
@@ -126,17 +132,34 @@ final class KeyboardViewController: UIInputViewController {
         suggestionsStack.distribution = .fillEqually
         suggestionsStack.spacing = 0
 
+        // Wispr-style: a prominent mic/record button at the top-right of the toolbar
+        // row (not down in the letter rows).
+        let topMic = KeyButton(type: .custom)
+        topMic.setImage(UIImage(systemName: "mic.fill"), for: .normal)
+        topMic.tintColor = .white
+        topMic.baseColor = brand
+        topMic.pressedColor = brand.withAlphaComponent(0.75)
+        topMic.layer.cornerRadius = 16
+        topMic.layer.masksToBounds = true
+        topMic.widthAnchor.constraint(equalToConstant: 56).isActive = true
+        topMic.addAction(UIAction { [weak self] _ in self?.micTapped() }, for: .touchUpInside)
+
+        let topBar = UIStackView(arrangedSubviews: [suggestionsStack, topMic])
+        topBar.axis = .horizontal
+        topBar.alignment = .fill
+        topBar.spacing = 8
+
         rowsStack = UIStackView()
         rowsStack.axis = .vertical
         rowsStack.distribution = .fillEqually
         rowsStack.spacing = 10
 
-        let root = UIStackView(arrangedSubviews: [suggestionsStack, rowsStack])
+        let root = UIStackView(arrangedSubviews: [topBar, rowsStack])
         root.axis = .vertical
         root.spacing = 6
         root.translatesAutoresizingMaskIntoConstraints = false
         root.isLayoutMarginsRelativeArrangement = true
-        root.layoutMargins = UIEdgeInsets(top: 8, left: 4, bottom: 4, right: 4)
+        root.layoutMargins = UIEdgeInsets(top: 8, left: 6, bottom: 4, right: 6)
         view.addSubview(root)
 
         NSLayoutConstraint.activate([
@@ -144,7 +167,7 @@ final class KeyboardViewController: UIInputViewController {
             root.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             root.topAnchor.constraint(equalTo: view.topAnchor),
             root.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            suggestionsStack.heightAnchor.constraint(equalToConstant: 40),
+            topBar.heightAnchor.constraint(equalToConstant: 44),
         ])
         updateSuggestions()
     }
@@ -156,6 +179,7 @@ final class KeyboardViewController: UIInputViewController {
     private func updateSuggestions() {
         let word = currentWord()
         guard !word.isEmpty else { showIdleSuggestions(); return }
+        let lw = word.lowercased()
 
         let ns = word as NSString
         let full = NSRange(location: 0, length: ns.length)
@@ -166,11 +190,15 @@ final class KeyboardViewController: UIInputViewController {
         } else {
             picks = textChecker.completions(forPartialWordRange: full, in: word, language: checkerLang) ?? []
         }
-        picks = picks.filter { $0.lowercased() != word.lowercased() }
-        if picks.isEmpty { showIdleSuggestions(); return }
+
+        // Romanized-Telugu/Hindi + user words that start with what's typed come first.
+        let learnedMatches = learnedWords.filter { $0.lowercased().hasPrefix(lw) && $0.lowercased() != lw }
+        var seen = Set<String>()
+        let combined = (learnedMatches + picks).filter { $0.lowercased() != lw && seen.insert($0.lowercased()).inserted }
+        if combined.isEmpty { showIdleSuggestions(); return }
 
         suggestionsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        var slots = [word] + picks                 // keep raw word first so you can keep what you typed
+        var slots = [word] + combined              // keep raw word first so you can keep what you typed
         slots = Array(slots.prefix(3))
         for (i, s) in slots.enumerated() {
             let b = suggestionButton(title: s, faint: i == 0)
@@ -338,26 +366,19 @@ final class KeyboardViewController: UIInputViewController {
         space.titleLabel?.font = .systemFont(ofSize: 15)
         space.addAction(UIAction { [weak self] _ in self?.spaceTapped() }, for: .touchUpInside)
 
-        let mic = specialKey(systemImage: "mic.fill")
-        mic.baseColor = brand
-        mic.pressedColor = brand.withAlphaComponent(0.75)
-        mic.tintColor = .white
-        mic.addAction(UIAction { [weak self] _ in self?.micTapped() }, for: .touchUpInside)
-
         let ret = specialKey(title: "return")
         ret.titleLabel?.font = .systemFont(ofSize: 16)
         ret.addAction(UIAction { [weak self] _ in self?.insert("\n") }, for: .touchUpInside)
 
+        // Bottom row (mic now lives in the top toolbar, Wispr-style): 123 · globe · space · return
         row.addArrangedSubview(modeKey)
         row.addArrangedSubview(globe)
         row.addArrangedSubview(space)
-        row.addArrangedSubview(mic)
         row.addArrangedSubview(ret)
 
-        modeKey.widthAnchor.constraint(equalTo: row.widthAnchor, multiplier: 0.11).isActive = true
+        modeKey.widthAnchor.constraint(equalTo: row.widthAnchor, multiplier: 0.13).isActive = true
         globe.widthAnchor.constraint(equalTo: modeKey.widthAnchor).isActive = true
-        mic.widthAnchor.constraint(equalTo: modeKey.widthAnchor).isActive = true
-        ret.widthAnchor.constraint(equalTo: row.widthAnchor, multiplier: 0.18).isActive = true
+        ret.widthAnchor.constraint(equalTo: row.widthAnchor, multiplier: 0.20).isActive = true
         return row
     }
 
@@ -563,5 +584,15 @@ final class KeyboardViewController: UIInputViewController {
               let data = json.data(using: .utf8),
               let list = try? JSONDecoder().decode([Dictation].self, from: data) else { return [] }
         return list.sorted { $0.id > $1.id }
+    }
+
+    /// Load the user + starter romanized-Telugu/Hindi words (written by the app) and
+    /// teach them to iOS's spell checker so they're never flagged/autocorrected.
+    private func loadLearnedWords() {
+        guard let json = store?.string(forKey: "kbd_learned_words"),
+              let data = json.data(using: .utf8),
+              let list = try? JSONDecoder().decode([String].self, from: data) else { return }
+        learnedWords = list
+        for w in list where !w.isEmpty { UITextChecker.learnWord(w) }
     }
 }

@@ -18,6 +18,7 @@ import React, {
 import { defaultCurationOptions } from '@/core';
 import { setItem } from './appGroup';
 import { syncToAppGroup } from './appGroupSync';
+import { TENGLISH_STARTER } from './tenglish';
 import { kvGet, kvSet } from './kv';
 import {
   AppSettings,
@@ -231,7 +232,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!state.hydrated) return;
     syncToAppGroup(state.history, state.snippets);
     setItem('kbd_language', state.settings.language);
-  }, [state.history, state.snippets, state.settings.language, state.hydrated]);
+    // Personal dictionary for the keyboard: starter romanized Telugu/Hindi + the
+    // user's Vocabulary terms, so it won't autocorrect them and can suggest them.
+    const learned = Array.from(
+      new Set([...TENGLISH_STARTER, ...state.vocabulary.map((t) => t.term)]),
+    );
+    setItem('kbd_learned_words', JSON.stringify(learned));
+  }, [
+    state.history,
+    state.snippets,
+    state.settings.language,
+    state.vocabulary,
+    state.hydrated,
+  ]);
 
   const actions = useMemo<StoreActions>(
     () => ({
