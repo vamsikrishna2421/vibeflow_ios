@@ -36,11 +36,17 @@ with Full Access). So VibeFlow splits the job:
 app.json / app.config.js   Expo config (bundle com.vibeflow.mobile, OTA channel `production`)
 eas.json                   EAS Build/Update profiles
 codemagic.yaml             iOS TestFlight pipeline (prebuild → sign → build-ipa → TestFlight)
-index.ts / App.tsx         entry + root
+index.ts / App.tsx         entry + providers (StoreProvider, NavProvider, deep-link bridge)
 src/
   core/                    PURE text pipeline (curation, vocab, snippets, corrections,
                            voice commands, routing) — Android :core port, Jest-tested
-  navigation/ screens/     RN UI (premium home, history, settings)
+  store/                   app state (reducer + context), SQLite-encrypted persistence,
+                           App-Group mirror, and the core↔settings pipeline bridge
+  hooks/useDictation.ts    on-device speech recognition (live partial + mic level)
+  ui/kit.tsx               premium dark component kit (the shared visual contract)
+  navigation/              lightweight tabs + stack + the keyboard `record` deep-link
+  screens/                 Talk (recorder) · History · Settings · Snippets · Vocabulary
+                           · Corrections · KeyboardSetup · Paywall · About
   theme/                   design tokens (brand gradient, surfaces)
 modules/vibeflow-appgroup/ local Expo native module: write into the App Group from JS
 targets/keyboard/          native Swift keyboard extension (@bacons/apple-targets)
@@ -67,7 +73,16 @@ npx expo prebuild        # CNG: generates ios/ incl. the keyboard target + app-g
 - `assets/` → see `assets/README.md` (icon / splash images)
 
 ## Status
-- ✅ Project scaffold on the LUCY stack (Expo SDK 56, RN 0.85, EAS OTA, Codemagic)
-- ✅ Core text pipeline ported to TS + verified against the Android unit suite
+- ✅ Project on the LUCY stack — **stable Expo SDK 57, RN 0.86, React 19.2** (the
+  original SDK-56 pins never existed as a stable release; realigned on the `macbook` branch)
+- ✅ Core text pipeline ported to TS + verified (`npm test` → **36 passing**, incl. the
+  app↔core bridge: command detection, snippet/vocab/correction application, trailing-space)
 - ✅ Native keyboard target + App-Group bridge (source-complete)
-- ⏳ Premium app UI · live recorder · AI Smart Formatting · history · paywall
+- ✅ State layer — persistent (SQLite/SQLCipher) settings/history/snippets/vocab/corrections,
+  mirrored into the App Group so the keyboard stays in sync
+- ✅ **Premium app UI, fully built** — live on-device recorder (animated mic + waveform),
+  History (search/pin/copy/delete), Settings (every pipeline knob + language), Snippets /
+  Vocabulary / Corrections CRUD, Keyboard setup, Paywall (RevenueCat, guarded), About
+- ✅ Whole app type-checks clean (`npm run typecheck` → 0 errors)
+- ⏳ Fill the deploy placeholders (EAS projectId, ASC app id, assets), wire `Purchases.configure`,
+  then native build on Codemagic → TestFlight
