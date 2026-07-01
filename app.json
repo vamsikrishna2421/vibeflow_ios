@@ -22,7 +22,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.vibeflow.mobile",
-      "buildNumber": "1.0.0",
+      "buildNumber": "1.0.1",
       "appleTeamId": "CJ8SV692GN",
       "entitlements": {
         "com.apple.security.application-groups": [
