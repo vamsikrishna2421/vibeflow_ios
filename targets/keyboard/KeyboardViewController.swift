@@ -1,15 +1,25 @@
 import UIKit
 
-/// The VibeFlow keyboard — a full QWERTY keyboard (styled like the system keyboard)
-/// with two VibeFlow twists:
-///   • the space bar reads **VibeFlow**, and
-///   • a brand-coloured **mic** key that starts voice dictation.
+/// A key that gives instant press feedback by swapping its background on highlight
+/// (UIButton toggles `isHighlighted` during touch), so typing feels responsive
+/// without rebuilding anything.
+final class KeyButton: UIButton {
+    var baseColor: UIColor = .clear { didSet { backgroundColor = baseColor } }
+    var pressedColor: UIColor = .clear
+    override var isHighlighted: Bool {
+        didSet { backgroundColor = isHighlighted ? pressedColor : baseColor }
+    }
+}
+
+/// The VibeFlow keyboard — a fast system-style QWERTY keyboard. The space bar reads
+/// "VibeFlow" and a brand-coloured mic key starts voice dictation.
 ///
-/// iOS forbids microphone access inside a keyboard extension, so the mic can't
-/// record here. Instead it opens the VibeFlow app to capture your voice; when you
-/// switch back to this text field, the keyboard auto-types the dictation you just
-/// made (the app writes it to the shared App Group). A suggestions strip also
-/// surfaces your recent dictations for one-tap insertion.
+/// Performance: the keyboard is built once per page. Shift/caps only re-title the
+/// existing letter keys in place (no view rebuild), so typing stays snappy.
+///
+/// Voice: iOS forbids recording inside a keyboard extension, so the mic opens the
+/// VibeFlow app to capture speech (this needs "Allow Full Access"); when you switch
+/// back, the keyboard auto-types the dictation the app just saved to the App Group.
 final class KeyboardViewController: UIInputViewController {
 
     // MARK: App Group hand-off
@@ -17,7 +27,9 @@ final class KeyboardViewController: UIInputViewController {
     private let recordURL = "vibeflow://record?from=keyboard"
     private lazy var store = UserDefaults(suiteName: appGroup)
 
-    // MARK: Brand
+    // iOS's built-in spell/prediction engine — powers live suggestions + autocorrect.
+    private let textChecker = UITextChecker()
+
     private let brand = UIColor(red: 0.486, green: 0.361, blue: 1.0, alpha: 1) // #7C5CFF
 
     // MARK: State
@@ -26,25 +38,27 @@ final class KeyboardViewController: UIInputViewController {
     private var shift: ShiftState = .on
     private var page: Page = .letters
 
-    // Auto-insert-on-return: when the mic is tapped we snapshot the current latest
-    // dictation; on returning, if it changed, we type the new one.
     private var armed = false
     private var armedSnapshot = ""
 
-    // Double-tap / double-space tracking
     private var lastShiftTap: Date = .distantPast
     private var lastSpaceTap: Date = .distantPast
     private var backspaceTimer: Timer?
 
-    // MARK: Views
+    // MARK: Views / tracking
     private var suggestionsStack: UIStackView!
     private var rowsStack: UIStackView!
+    private var letterButtons: [KeyButton] = []   // a–z keys, re-titled on shift
+    private var shiftButton: KeyButton?
+    private var built = false
 
-    // MARK: - Appearance-aware colors
+    // MARK: Appearance-aware colors
     private var isDark: Bool { textDocumentProxy.keyboardAppearance == .dark || traitCollection.userInterfaceStyle == .dark }
     private var kbBackground: UIColor { isDark ? UIColor(white: 0.09, alpha: 1) : UIColor(red: 0.82, green: 0.84, blue: 0.86, alpha: 1) }
     private var keyColor: UIColor { isDark ? UIColor(white: 0.24, alpha: 1) : .white }
+    private var keyPressed: UIColor { isDark ? UIColor(white: 0.36, alpha: 1) : UIColor(red: 0.71, green: 0.74, blue: 0.78, alpha: 1) }
     private var specialKeyColor: UIColor { isDark ? UIColor(white: 0.16, alpha: 1) : UIColor(red: 0.67, green: 0.70, blue: 0.74, alpha: 1) }
+    private var specialPressed: UIColor { isDark ? UIColor(white: 0.28, alpha: 1) : .white }
     private var inkColor: UIColor { isDark ? .white : .black }
     private var faintInk: UIColor { isDark ? UIColor(white: 0.6, alpha: 1) : UIColor(white: 0.35, alpha: 1) }
 
@@ -52,23 +66,27 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.heightAnchor.constraint(equalToConstant: 268).isActive = true
+        let h = view.heightAnchor.constraint(equalToConstant: 280)
+        h.priority = UILayoutPriority(999)
+        h.isActive = true
         buildLayout()
         rebuildKeys()
+        built = true
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        guard built else { return }
         autoInsertIfReturned()
-        reloadSuggestions()
+        updateSuggestions()
         updateShiftForContext()
-        rebuildKeys()
     }
 
     override func traitCollectionDidChange(_ previous: UITraitCollection?) {
         super.traitCollectionDidChange(previous)
+        guard built else { return }
         view.backgroundColor = kbBackground
-        reloadSuggestions()
+        updateSuggestions()
         rebuildKeys()
     }
 
@@ -80,7 +98,6 @@ final class KeyboardViewController: UIInputViewController {
         suggestionsStack = UIStackView()
         suggestionsStack.axis = .horizontal
         suggestionsStack.distribution = .fillEqually
-        suggestionsStack.alignment = .fill
         suggestionsStack.spacing = 0
 
         rowsStack = UIStackView()
@@ -101,15 +118,44 @@ final class KeyboardViewController: UIInputViewController {
             root.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             root.topAnchor.constraint(equalTo: view.topAnchor),
             root.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            suggestionsStack.heightAnchor.constraint(equalToConstant: 42),
+            suggestionsStack.heightAnchor.constraint(equalToConstant: 40),
         ])
+        updateSuggestions()
     }
 
-    // MARK: - Suggestions strip (VibeFlow recents / latest)
+    // MARK: - Suggestions strip (typing predictions ↔ dictation recents)
 
-    private func reloadSuggestions() {
+    /// While a word is being typed, show spell/prediction suggestions; otherwise
+    /// fall back to recent dictations (or the mic hint).
+    private func updateSuggestions() {
+        let word = currentWord()
+        guard !word.isEmpty else { showIdleSuggestions(); return }
+
+        let ns = word as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        var picks: [String] = []
+        let mis = textChecker.rangeOfMisspelledWord(in: word, range: full, startingAt: 0, wrap: false, language: "en_US")
+        if mis.location != NSNotFound {
+            picks = textChecker.guesses(forWordRange: mis, in: word, language: "en_US") ?? []
+        } else {
+            picks = textChecker.completions(forPartialWordRange: full, in: word, language: "en_US") ?? []
+        }
+        picks = picks.filter { $0.lowercased() != word.lowercased() }
+        if picks.isEmpty { showIdleSuggestions(); return }
+
         suggestionsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        var slots = [word] + picks                 // keep raw word first so you can keep what you typed
+        slots = Array(slots.prefix(3))
+        for (i, s) in slots.enumerated() {
+            if i > 0 { suggestionsStack.addArrangedSubview(divider()) }
+            let b = suggestionButton(title: s, faint: i == 0)
+            b.addAction(UIAction { [weak self] _ in self?.replaceCurrentWord(with: s) }, for: .touchUpInside)
+            suggestionsStack.addArrangedSubview(b)
+        }
+    }
 
+    private func showIdleSuggestions() {
+        suggestionsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let recents = history().prefix(3).map { $0.text }
         if recents.isEmpty {
             let hint = suggestionButton(title: "🎙  Tap the mic to dictate", faint: true)
@@ -117,21 +163,41 @@ final class KeyboardViewController: UIInputViewController {
             suggestionsStack.addArrangedSubview(hint)
             return
         }
-
         for (i, text) in recents.enumerated() {
             if i > 0 { suggestionsStack.addArrangedSubview(divider()) }
             let oneLine = text.replacingOccurrences(of: "\n", with: " ")
-            let b = suggestionButton(title: String(oneLine.prefix(22)), faint: false)
+            let b = suggestionButton(title: String(oneLine.prefix(20)), faint: false)
             b.addAction(UIAction { [weak self] _ in self?.insert(text) }, for: .touchUpInside)
             suggestionsStack.addArrangedSubview(b)
         }
+    }
+
+    /// The run of letters immediately before the cursor (the word being typed).
+    private func currentWord() -> String {
+        guard page == .letters else { return "" }
+        let before = textDocumentProxy.documentContextBeforeInput ?? ""
+        var chars: [Character] = []
+        for ch in before.reversed() {
+            if ch.isLetter { chars.append(ch) } else { break }
+        }
+        return String(chars.reversed())
+    }
+
+    /// Replace the in-progress word with a chosen suggestion (adds a trailing space).
+    private func replaceCurrentWord(with replacement: String) {
+        let word = currentWord()
+        guard !word.isEmpty else { return }
+        for _ in 0..<(word as NSString).length { textDocumentProxy.deleteBackward() }
+        textDocumentProxy.insertText(replacement + " ")
+        updateShiftForContext()
+        updateSuggestions()
     }
 
     private func suggestionButton(title: String, faint: Bool) -> UIButton {
         let b = UIButton(type: .system)
         b.setTitle(title, for: .normal)
         b.setTitleColor(faint ? faintInk : inkColor, for: .normal)
-        b.titleLabel?.font = .systemFont(ofSize: 15, weight: .regular)
+        b.titleLabel?.font = .systemFont(ofSize: 15)
         b.titleLabel?.adjustsFontSizeToFitWidth = true
         b.titleLabel?.minimumScaleFactor = 0.8
         return b
@@ -140,96 +206,84 @@ final class KeyboardViewController: UIInputViewController {
     private func divider() -> UIView {
         let v = UIView()
         v.backgroundColor = faintInk.withAlphaComponent(0.35)
-        v.widthAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale).isActive = true
+        v.widthAnchor.constraint(equalToConstant: 0.5).isActive = true
         return v
     }
 
-    // MARK: - Keyboard rows
+    // MARK: - Build keys (only on load / page switch / appearance change)
 
     private func rebuildKeys() {
         rowsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        letterButtons.removeAll()
+        shiftButton = nil
 
         switch page {
         case .letters:
-            let top = shifted(["q","w","e","r","t","y","u","i","o","p"])
-            let mid = shifted(["a","s","d","f","g","h","j","k","l"])
-            let bot = shifted(["z","x","c","v","b","n","m"])
-            rowsStack.addArrangedSubview(letterRow(top))
-            rowsStack.addArrangedSubview(inset(letterRow(mid), by: 18))
-            rowsStack.addArrangedSubview(bottomLetterRow(bot))
+            rowsStack.addArrangedSubview(charRow(["q","w","e","r","t","y","u","i","o","p"], letters: true))
+            rowsStack.addArrangedSubview(inset(charRow(["a","s","d","f","g","h","j","k","l"], letters: true), by: 18))
+            rowsStack.addArrangedSubview(lettersBottomRow(["z","x","c","v","b","n","m"]))
         case .numbers:
-            rowsStack.addArrangedSubview(letterRow(["1","2","3","4","5","6","7","8","9","0"]))
-            rowsStack.addArrangedSubview(letterRow(["-","/",":",";","(",")","$","&","@","\""]))
-            rowsStack.addArrangedSubview(symbolBottomRow(toggleTitle: "#+=", keys: [".",",","?","!","'"]) { [weak self] in self?.page = .symbols; self?.rebuildKeys() })
+            rowsStack.addArrangedSubview(charRow(["1","2","3","4","5","6","7","8","9","0"], letters: false))
+            rowsStack.addArrangedSubview(charRow(["-","/",":",";","(",")","$","&","@","\""], letters: false))
+            rowsStack.addArrangedSubview(punctBottomRow(toggle: "#+=", keys: [".",",","?","!","'"]) { [weak self] in self?.page = .symbols; self?.rebuildKeys() })
         case .symbols:
-            rowsStack.addArrangedSubview(letterRow(["[","]","{","}","#","%","^","*","+","="]))
-            rowsStack.addArrangedSubview(letterRow(["_","\\","|","~","<",">","€","£","¥","•"]))
-            rowsStack.addArrangedSubview(symbolBottomRow(toggleTitle: "123", keys: [".",",","?","!","'"]) { [weak self] in self?.page = .numbers; self?.rebuildKeys() })
+            rowsStack.addArrangedSubview(charRow(["[","]","{","}","#","%","^","*","+","="], letters: false))
+            rowsStack.addArrangedSubview(charRow(["_","\\","|","~","<",">","€","£","¥","•"], letters: false))
+            rowsStack.addArrangedSubview(punctBottomRow(toggle: "123", keys: [".",",","?","!","'"]) { [weak self] in self?.page = .numbers; self?.rebuildKeys() })
         }
         rowsStack.addArrangedSubview(functionRow())
+        applyShiftAppearance()
     }
 
-    private func shifted(_ letters: [String]) -> [String] {
-        shift == .off ? letters : letters.map { $0.uppercased() }
-    }
-
-    /// A row of equal-width character keys.
-    private func letterRow(_ keys: [String]) -> UIStackView {
+    private func charRow(_ keys: [String], letters: Bool) -> UIStackView {
         let row = UIStackView()
         row.axis = .horizontal
         row.distribution = .fillEqually
         row.spacing = 6
-        for k in keys { row.addArrangedSubview(charKey(k)) }
+        for k in keys { row.addArrangedSubview(charKey(k, isLetter: letters)) }
         return row
     }
 
-    /// Row 3 of letters: shift + letters + backspace.
-    private func bottomLetterRow(_ keys: [String]) -> UIStackView {
+    private func lettersBottomRow(_ keys: [String]) -> UIStackView {
         let row = UIStackView()
         row.axis = .horizontal
         row.spacing = 6
-        row.distribution = .fill
 
-        let shiftKey = specialKey(systemImage: shift == .locked ? "capslock.fill" : (shift == .on ? "shift.fill" : "shift"))
-        shiftKey.addAction(UIAction { [weak self] _ in self?.shiftTapped() }, for: .touchUpInside)
+        let shiftKey = specialKey(systemImage: "shift")
+        shiftKey.addTarget(self, action: #selector(shiftTapped), for: .touchUpInside)
+        shiftButton = shiftKey
 
-        let letters = UIStackView()
-        letters.axis = .horizontal
-        letters.distribution = .fillEqually
-        letters.spacing = 6
-        for k in keys { letters.addArrangedSubview(charKey(k)) }
+        let mid = UIStackView()
+        mid.axis = .horizontal
+        mid.distribution = .fillEqually
+        mid.spacing = 6
+        for k in keys { mid.addArrangedSubview(charKey(k, isLetter: true)) }
 
-        let back = specialKey(systemImage: "delete.left")
-        back.addTarget(self, action: #selector(backspaceDown), for: .touchDown)
-        back.addTarget(self, action: #selector(backspaceUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        let back = backspaceKey()
 
         row.addArrangedSubview(shiftKey)
-        row.addArrangedSubview(letters)
+        row.addArrangedSubview(mid)
         row.addArrangedSubview(back)
         shiftKey.widthAnchor.constraint(equalTo: back.widthAnchor).isActive = true
         shiftKey.widthAnchor.constraint(equalTo: row.widthAnchor, multiplier: 0.13).isActive = true
         return row
     }
 
-    /// Row 3 of numbers/symbols: page-toggle + punctuation + backspace.
-    private func symbolBottomRow(toggleTitle: String, keys: [String], toggle: @escaping () -> Void) -> UIStackView {
+    private func punctBottomRow(toggle: String, keys: [String], action: @escaping () -> Void) -> UIStackView {
         let row = UIStackView()
         row.axis = .horizontal
         row.spacing = 6
-        row.distribution = .fill
 
-        let toggleKey = specialKey(title: toggleTitle)
-        toggleKey.addAction(UIAction { _ in toggle() }, for: .touchUpInside)
+        let toggleKey = specialKey(title: toggle)
+        toggleKey.addAction(UIAction { _ in action() }, for: .touchUpInside)
 
         let mid = UIStackView()
         mid.axis = .horizontal
         mid.distribution = .fillEqually
         mid.spacing = 6
-        for k in keys { mid.addArrangedSubview(charKey(k)) }
+        for k in keys { mid.addArrangedSubview(charKey(k, isLetter: false)) }
 
-        let back = specialKey(systemImage: "delete.left")
-        back.addTarget(self, action: #selector(backspaceDown), for: .touchDown)
-        back.addTarget(self, action: #selector(backspaceUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        let back = backspaceKey()
 
         row.addArrangedSubview(toggleKey)
         row.addArrangedSubview(mid)
@@ -239,15 +293,12 @@ final class KeyboardViewController: UIInputViewController {
         return row
     }
 
-    /// Bottom function row: [123/ABC] [🌐] [ space "VibeFlow" ] [🎤] [return].
     private func functionRow() -> UIStackView {
         let row = UIStackView()
         row.axis = .horizontal
         row.spacing = 6
-        row.distribution = .fill
 
-        let modeTitle = page == .letters ? "123" : "ABC"
-        let modeKey = specialKey(title: modeTitle)
+        let modeKey = specialKey(title: page == .letters ? "123" : "ABC")
         modeKey.addAction(UIAction { [weak self] _ in
             self?.page = (self?.page == .letters ? .numbers : .letters)
             self?.rebuildKeys()
@@ -256,20 +307,21 @@ final class KeyboardViewController: UIInputViewController {
         let globe = specialKey(systemImage: "globe")
         globe.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
 
-        let space = charKey("VibeFlow")
-        space.titleLabel?.font = .systemFont(ofSize: 15, weight: .regular)
+        let space = specialKey(title: "VibeFlow")
+        space.baseColor = keyColor
+        space.pressedColor = keyPressed
         space.setTitleColor(faintInk, for: .normal)
-        // override the default char action with space handling
-        space.removeTarget(nil, action: nil, for: .allEvents)
+        space.titleLabel?.font = .systemFont(ofSize: 15)
         space.addAction(UIAction { [weak self] _ in self?.spaceTapped() }, for: .touchUpInside)
 
         let mic = specialKey(systemImage: "mic.fill")
-        mic.backgroundColor = brand
+        mic.baseColor = brand
+        mic.pressedColor = brand.withAlphaComponent(0.75)
         mic.tintColor = .white
         mic.addAction(UIAction { [weak self] _ in self?.micTapped() }, for: .touchUpInside)
 
         let ret = specialKey(title: "return")
-        ret.titleLabel?.font = .systemFont(ofSize: 16, weight: .regular)
+        ret.titleLabel?.font = .systemFont(ofSize: 16)
         ret.addAction(UIAction { [weak self] _ in self?.insert("\n") }, for: .touchUpInside)
 
         row.addArrangedSubview(modeKey)
@@ -278,7 +330,6 @@ final class KeyboardViewController: UIInputViewController {
         row.addArrangedSubview(mic)
         row.addArrangedSubview(ret)
 
-        // widths: space is widest; the rest share a base width
         modeKey.widthAnchor.constraint(equalTo: row.widthAnchor, multiplier: 0.11).isActive = true
         globe.widthAnchor.constraint(equalTo: modeKey.widthAnchor).isActive = true
         mic.widthAnchor.constraint(equalTo: modeKey.widthAnchor).isActive = true
@@ -288,35 +339,47 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: - Key factories
 
-    private func charKey(_ title: String) -> UIButton {
-        let b = baseKey()
-        b.setTitle(title, for: .normal)
+    private func charKey(_ base: String, isLetter: Bool) -> KeyButton {
+        let b = makeKey()
+        b.baseColor = keyColor
+        b.pressedColor = keyPressed
+        b.setTitle(base, for: .normal)
         b.setTitleColor(inkColor, for: .normal)
-        b.titleLabel?.font = .systemFont(ofSize: 22, weight: .regular)
-        b.backgroundColor = keyColor
-        if title.count == 1 {
-            b.addAction(UIAction { [weak self] _ in self?.charTapped(title) }, for: .touchUpInside)
+        b.titleLabel?.font = .systemFont(ofSize: 22)
+        if isLetter {
+            b.accessibilityIdentifier = base       // lowercase base for re-titling
+            letterButtons.append(b)
+            b.addAction(UIAction { [weak self] _ in self?.charTapped(base) }, for: .touchUpInside)
+        } else {
+            b.addAction(UIAction { [weak self] _ in self?.insert(base) }, for: .touchUpInside)
         }
         return b
     }
 
-    private func specialKey(title: String? = nil, systemImage: String? = nil) -> UIButton {
-        let b = baseKey()
-        if let title { b.setTitle(title, for: .normal); b.setTitleColor(inkColor, for: .normal); b.titleLabel?.font = .systemFont(ofSize: 16, weight: .regular) }
+    private func specialKey(title: String? = nil, systemImage: String? = nil) -> KeyButton {
+        let b = makeKey()
+        b.baseColor = specialKeyColor
+        b.pressedColor = specialPressed
+        if let title { b.setTitle(title, for: .normal); b.setTitleColor(inkColor, for: .normal); b.titleLabel?.font = .systemFont(ofSize: 16) }
         if let systemImage { b.setImage(UIImage(systemName: systemImage), for: .normal); b.tintColor = inkColor }
-        b.backgroundColor = specialKeyColor
         return b
     }
 
-    private func baseKey() -> UIButton {
-        let b = UIButton(type: .system)
+    private func backspaceKey() -> KeyButton {
+        let b = specialKey(systemImage: "delete.left")
+        b.addTarget(self, action: #selector(backspaceDown), for: .touchDown)
+        b.addTarget(self, action: #selector(backspaceUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        return b
+    }
+
+    private func makeKey() -> KeyButton {
+        let b = KeyButton(type: .custom)
         b.layer.cornerRadius = 6
         b.layer.masksToBounds = true
-        b.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        b.heightAnchor.constraint(greaterThanOrEqualToConstant: 46).isActive = true
         return b
     }
 
-    /// Wrap a row with horizontal padding (used to inset the A–L row like iOS).
     private func inset(_ v: UIView, by pad: CGFloat) -> UIView {
         let c = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
@@ -330,27 +393,39 @@ final class KeyboardViewController: UIInputViewController {
         return c
     }
 
-    // MARK: - Key actions
+    // MARK: - Shift (fast, no rebuild)
 
-    private func charTapped(_ ch: String) {
-        insert(ch)
-        if shift == .on { shift = .off; rebuildKeys() } // one-shot shift
+    private func applyShiftAppearance() {
+        guard page == .letters else { return }
+        let upper = shift != .off
+        for b in letterButtons {
+            let base = b.accessibilityIdentifier ?? (b.currentTitle ?? "")
+            b.setTitle(upper ? base.uppercased() : base, for: .normal)
+        }
+        let name = shift == .locked ? "capslock.fill" : (shift == .on ? "shift.fill" : "shift")
+        shiftButton?.setImage(UIImage(systemName: name), for: .normal)
     }
 
-    private func shiftTapped() {
+    // MARK: - Key actions
+
+    private func charTapped(_ base: String) {
+        textDocumentProxy.insertText(shift == .off ? base : base.uppercased())
+        if shift == .on { shift = .off }   // consume one-shot shift
+        updateShiftForContext()
+        updateSuggestions()
+    }
+
+    @objc private func shiftTapped() {
         let now = Date()
-        if now.timeIntervalSince(lastShiftTap) < 0.3 {
-            shift = .locked
-        } else {
-            shift = (shift == .off) ? .on : .off
-        }
+        if now.timeIntervalSince(lastShiftTap) < 0.3 { shift = .locked }
+        else { shift = (shift == .off) ? .on : .off }
         lastShiftTap = now
-        rebuildKeys()
+        applyShiftAppearance()
     }
 
     private func spaceTapped() {
+        autocorrectCurrentWord()
         let now = Date()
-        // double-space → ". " (iOS behaviour)
         if now.timeIntervalSince(lastSpaceTap) < 0.3,
            let before = textDocumentProxy.documentContextBeforeInput,
            before.hasSuffix(" "),
@@ -363,6 +438,23 @@ final class KeyboardViewController: UIInputViewController {
             lastSpaceTap = now
         }
         updateShiftForContext()
+        updateSuggestions()
+    }
+
+    /// Conservative autocorrect: if the just-typed word is clearly misspelled and
+    /// there's a confident guess, swap it — mirrors the system keyboard's space fix.
+    private func autocorrectCurrentWord() {
+        let word = currentWord()
+        guard word.count >= 3 else { return }
+        let ns = word as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        let mis = textChecker.rangeOfMisspelledWord(in: word, range: full, startingAt: 0, wrap: false, language: "en_US")
+        guard mis.location != NSNotFound,
+              let top = textChecker.guesses(forWordRange: mis, in: word, language: "en_US")?.first,
+              top.lowercased() != word.lowercased(),
+              !top.contains(" ") else { return }
+        for _ in 0..<ns.length { textDocumentProxy.deleteBackward() }
+        textDocumentProxy.insertText(top)
     }
 
     @objc private func backspaceDown() {
@@ -377,25 +469,22 @@ final class KeyboardViewController: UIInputViewController {
         backspaceTimer?.invalidate()
         backspaceTimer = nil
         updateShiftForContext()
+        updateSuggestions()
     }
 
     private func insert(_ text: String) {
         textDocumentProxy.insertText(text)
         updateShiftForContext()
+        updateSuggestions()
     }
 
-    /// Auto-capitalise at the start of input and after sentence enders.
     private func updateShiftForContext() {
-        guard shift != .locked else { return }
+        guard shift != .locked, page == .letters else { return }
         let before = textDocumentProxy.documentContextBeforeInput ?? ""
-        let trimmed = before
-        let shouldCap: Bool
-        if trimmed.isEmpty { shouldCap = true }
-        else if trimmed.hasSuffix("\n") { shouldCap = true }
-        else if trimmed.hasSuffix(". ") || trimmed.hasSuffix("! ") || trimmed.hasSuffix("? ") { shouldCap = true }
-        else { shouldCap = false }
-        let newShift: ShiftState = shouldCap ? .on : .off
-        if newShift != shift { shift = newShift; rebuildKeys() }
+        let cap = before.isEmpty || before.hasSuffix("\n")
+            || before.hasSuffix(". ") || before.hasSuffix("! ") || before.hasSuffix("? ")
+        let want: ShiftState = cap ? .on : .off
+        if want != shift { shift = want; applyShiftAppearance() }
     }
 
     // MARK: - Mic → dictation flow
@@ -406,7 +495,6 @@ final class KeyboardViewController: UIInputViewController {
         openApp()
     }
 
-    /// When we come back from the app after a mic tap, type the new dictation.
     private func autoInsertIfReturned() {
         guard armed else { return }
         let current = latest()
@@ -416,7 +504,7 @@ final class KeyboardViewController: UIInputViewController {
         armed = false
     }
 
-    /// Extensions can't call openURL directly — walk the responder chain.
+    /// Opening a URL from a keyboard extension requires "Allow Full Access".
     private func openApp() {
         guard let url = URL(string: recordURL) else { return }
         var responder: UIResponder? = self

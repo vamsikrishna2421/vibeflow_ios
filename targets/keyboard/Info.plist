@@ -20,9 +20,10 @@
 			<false/>
 			<key>PrimaryLanguage</key>
 			<string>en-US</string>
-			<!-- App-Group hand-off needs no open access (keeps the privacy story clean). -->
+			<!-- Full Access is required so the mic key can open the VibeFlow app to
+			     dictate (keyboard extensions can only call openURL with Full Access). -->
 			<key>RequestsOpenAccess</key>
-			<false/>
+			<true/>
 		</dict>
 	</dict>
 </dict>

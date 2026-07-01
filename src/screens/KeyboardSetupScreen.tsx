@@ -35,10 +35,13 @@ export function KeyboardSetupScreen() {
           Tap <Text style={styles.path}>“Add New Keyboard…”</Text> and choose{' '}
           <Text style={styles.path}>VibeFlow</Text>.
         </Step>
-        <Step n={4} tone="done">
-          That’s it — VibeFlow needs{' '}
-          <Text style={styles.strong}>no “Full Access”</Text>. Your words are shared
-          privately through an App Group, never the pasteboard.
+        <Step n={4}>
+          Tap <Text style={styles.path}>VibeFlow</Text> in the list, then turn on{' '}
+          <Text style={styles.path}>Allow Full Access</Text> → <Text style={styles.path}>Allow</Text>.
+        </Step>
+        <Step n={5} tone="done">
+          Done! Full Access lets the <Text style={styles.strong}>mic key open VibeFlow to dictate</Text>.
+          Recognition still runs on-device — your voice never leaves your phone.
         </Step>
       </View>
 
@@ -52,18 +55,18 @@ export function KeyboardSetupScreen() {
         </View>
 
         <FlowStep
-          icon="mic-outline"
-          text="Dictate in the VibeFlow app — your words are formatted instantly."
-        />
-        <FlowConnector />
-        <FlowStep
           icon="globe-outline"
           text="In any app, switch to the VibeFlow keyboard with the 🌐 globe key."
         />
         <FlowConnector />
         <FlowStep
+          icon="mic-outline"
+          text="Type as usual, or tap the mic — VibeFlow opens, you speak, and it hops back."
+        />
+        <FlowConnector />
+        <FlowStep
           icon="arrow-down-circle-outline"
-          text="Tap “Insert latest” to drop them right at the cursor."
+          text="Your words are typed in for you, cleanly formatted."
         />
       </Card>
 
