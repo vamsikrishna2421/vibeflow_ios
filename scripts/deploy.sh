@@ -23,6 +23,9 @@ if [ "$mode" = "update" ]; then
   exec eas update --branch production --environment production --message "$msg" --non-interactive
 fi
 
-echo "▶ Build + auto-submit to TestFlight (background; ~build 5-8m, then the free-tier"
-echo "  submit queue + Apple processing). Watch: https://expo.dev/accounts/lekkala2421/projects/vibeflow/builds"
-exec eas build --profile testflight --platform ios --non-interactive --auto-submit --no-wait
+echo "▶ Build, then CONFIRMED submit to TestFlight."
+echo "  We --wait on the submit so 'done' means Apple actually received it — the"
+echo "  free-tier queue can silently stall a fire-and-forget (--no-wait) submit."
+eas build --profile testflight --platform ios --non-interactive --wait
+echo "▶ Build done. Submitting (waiting for real completion)…"
+exec eas submit --platform ios --latest --profile testflight --non-interactive --wait
