@@ -19,6 +19,11 @@ import { useNav } from '@/navigation/nav';
 import { buildPipelineConfig, runDictation, useStore } from '@/store';
 import { Colors, Radius, micGradient } from '@/theme/colors';
 import { Badge, GhostButton, haptic } from '@/ui/kit';
+import {
+  startLiveActivity,
+  stopLiveActivity,
+  updateLiveActivity,
+} from '../../modules/vibeflow-liveactivity';
 
 const BAR_COUNT = 9;
 
@@ -105,6 +110,16 @@ export function TalkScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordNonce]);
+
+  // Flow Session Live Activity (Dynamic Island): show it while listening, and keep
+  // the live transcript updated. Ends when we stop. (Stage 1 of the background session.)
+  useEffect(() => {
+    if (listening) startLiveActivity('Listening…');
+    else stopLiveActivity();
+  }, [listening]);
+  useEffect(() => {
+    if (listening) updateLiveActivity('Listening…', dictation.partial);
+  }, [dictation.partial, listening]);
 
   // Auto-dismiss the toast.
   useEffect(() => {
