@@ -27,6 +27,15 @@ final class KeyboardViewController: UIInputViewController {
     private let recordURL = "vibeflow://record?from=keyboard"
     private lazy var store = UserDefaults(suiteName: appGroup)
 
+    // MARK: Flow Session (Wispr-style, zero-hop dictation)
+    // While the app's background session is alive (Dynamic Island showing), the mic
+    // key doesn't open the app — it toggles recording over Darwin IPC and the app
+    // pushes the result back for immediate insertion.
+    private let flowToggleName = "com.vibeflow.flow.toggle"
+    private let flowResultName = "com.vibeflow.flow.result"
+    private var flowListening = false
+    private var lastFlowInserted = ""
+
     // iOS's built-in spell/prediction engine — powers live suggestions + autocorrect.
     private let textChecker = UITextChecker()
 
@@ -72,6 +81,7 @@ final class KeyboardViewController: UIInputViewController {
     private var rowsStack: UIStackView!
     private var letterButtons: [KeyButton] = []   // a–z keys, re-titled on shift
     private var shiftButton: KeyButton?
+    private var topMicButton: KeyButton?
     private var built = false
 
     // MARK: Appearance-aware colors
@@ -95,6 +105,14 @@ final class KeyboardViewController: UIInputViewController {
         rebuildKeys()
         built = true
         loadLearnedWords()
+        registerFlowResultObserver()
+    }
+
+    deinit {
+        CFNotificationCenterRemoveEveryObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            Unmanaged.passUnretained(self).toOpaque()
+        )
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -103,6 +121,8 @@ final class KeyboardViewController: UIInputViewController {
         guard built else { return }
         autoInsertIfReturned()
         loadLearnedWords()
+        flowListening = false          // never carry a stale "recording" state
+        applyMicAppearance()
         updateSuggestions()
         updateShiftForContext()
     }
@@ -143,6 +163,7 @@ final class KeyboardViewController: UIInputViewController {
         topMic.layer.masksToBounds = true
         topMic.widthAnchor.constraint(equalToConstant: 56).isActive = true
         topMic.addAction(UIAction { [weak self] _ in self?.micTapped() }, for: .touchUpInside)
+        topMicButton = topMic
 
         let topBar = UIStackView(arrangedSubviews: [suggestionsStack, topMic])
         topBar.axis = .horizontal
@@ -543,10 +564,31 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: - Mic → dictation flow
 
+    private var flowSessionAlive: Bool { groupString("flow_session_active") == "true" }
+
     private func micTapped() {
+        // Flow Session alive (Dynamic Island showing)? Record right here — no hop.
+        if flowSessionAlive {
+            flowListening.toggle()
+            applyMicAppearance()
+            CFNotificationCenterPostNotification(
+                CFNotificationCenterGetDarwinNotifyCenter(),
+                CFNotificationName(flowToggleName as CFString),
+                nil, nil, true
+            )
+            return
+        }
+        // Otherwise: the one-time hop that starts the session.
         armed = true
         armedSnapshot = latest()
         openApp()
+    }
+
+    /// Mic key turns red while a flow recording is in progress.
+    private func applyMicAppearance() {
+        guard let mic = topMicButton else { return }
+        mic.baseColor = flowListening ? .systemRed : brand
+        mic.pressedColor = (flowListening ? UIColor.systemRed : brand).withAlphaComponent(0.75)
     }
 
     private func autoInsertIfReturned() {
@@ -554,8 +596,35 @@ final class KeyboardViewController: UIInputViewController {
         let current = latest()
         if !current.isEmpty && current != armedSnapshot {
             textDocumentProxy.insertText(current)
+            lastFlowInserted = current
         }
         armed = false
+    }
+
+    /// Darwin "result ready" → insert the fresh dictation right where the user is.
+    private func registerFlowResultObserver() {
+        let center = CFNotificationCenterGetDarwinNotifyCenter()
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+        CFNotificationCenterAddObserver(center, observer, { _, observer, _, _, _ in
+            guard let observer = observer else { return }
+            let kb = Unmanaged<KeyboardViewController>.fromOpaque(observer).takeUnretainedValue()
+            DispatchQueue.main.async { kb.insertFlowResult() }
+        }, flowResultName as CFString, nil, .deliverImmediately)
+    }
+
+    private func insertFlowResult() {
+        let text = latest()
+        guard !text.isEmpty, text != lastFlowInserted else { return }
+        lastFlowInserted = text
+        flowListening = false
+        applyMicAppearance()
+        // Space-separate from any existing text at the cursor.
+        if let before = textDocumentProxy.documentContextBeforeInput,
+           let last = before.last, !last.isWhitespace, !"\n([{\"'".contains(last) {
+            textDocumentProxy.insertText(" ")
+        }
+        textDocumentProxy.insertText(text)
+        updateSuggestions()
     }
 
     /// Opening a URL from a keyboard extension requires "Allow Full Access". The old

@@ -17,8 +17,16 @@ import { VoiceCommand } from '@/core';
 import { useDictation } from '@/hooks/useDictation';
 import { useNav } from '@/navigation/nav';
 import { buildPipelineConfig, runDictation, useStore } from '@/store';
+import { setItem } from '@/store/appGroup';
 import { Colors, Radius, micGradient } from '@/theme/colors';
 import { Badge, GhostButton, haptic } from '@/ui/kit';
+import {
+  addRecordToggleListener,
+  notifyResultReady,
+  reassertFlowSession,
+  startFlowSession,
+  stopFlowSession,
+} from '../../modules/vibeflow-flowsession';
 import {
   startLiveActivity,
   stopLiveActivity,
@@ -39,6 +47,13 @@ export function TalkScreen() {
   // True while a recording was started by the keyboard's mic (vibeflow://record):
   // we auto-save that dictation so the keyboard can type it when you switch back.
   const fromKeyboardRef = useRef(false);
+  // Flow Session: after that first hop we keep a background session alive (Dynamic
+  // Island) so further keyboard mic taps record right here — no more app switches.
+  const [sessionActive, setSessionActive] = useState(false);
+  const sessionActiveRef = useRef(false);
+  sessionActiveRef.current = sessionActive;
+  // True while the current utterance was started by the keyboard over Darwin IPC.
+  const flowUtteranceRef = useRef(false);
 
   const config = useMemo(
     () => buildPipelineConfig(settings, snippets, vocabulary, corrections),
@@ -60,11 +75,30 @@ export function TalkScreen() {
       const next = draftRef.current ? draftRef.current + outcome.text : outcome.text;
       setDraft(next);
       if (settings.haptics) haptic.success();
-      // Started from the keyboard mic → save it so the keyboard auto-types it on return.
+      // Flow-session utterance (keyboard mic, app in background): hand ONLY this
+      // utterance to the keyboard and ping it to insert immediately.
+      if (flowUtteranceRef.current) {
+        flowUtteranceRef.current = false;
+        const text = outcome.text.trim();
+        // Write synchronously BEFORE the Darwin ping — the store's App-Group mirror
+        // runs in a later effect, and the keyboard reads the instant it's pinged.
+        setItem('latest_dictation', text);
+        addDictation(text);
+        notifyResultReady();
+        return;
+      }
+      // First hop from the keyboard: save for auto-type on return AND start the
+      // background Flow Session so every next dictation is zero-hop.
       if (fromKeyboardRef.current) {
         fromKeyboardRef.current = false;
         addDictation(next.trim());
-        flashToast('Saved ✓  Tap ‹ back (top-left) — the keyboard types it in automatically');
+        const started = startFlowSession();
+        if (started) {
+          setSessionActive(true);
+          flashToast('Saved ✓  Tap ‹ back — Flow Session is ON: next time just tap the keyboard mic');
+        } else {
+          flashToast('Saved ✓  Tap ‹ back (top-left) — the keyboard types it in automatically');
+        }
         return;
       }
       if (settings.autoCopy) {
@@ -100,6 +134,36 @@ export function TalkScreen() {
     onFinal: handleFinal,
   });
   const listening = dictation.state === 'listening';
+  const dictationRef = useRef(dictation);
+  dictationRef.current = dictation;
+
+  // Keyboard mic tapped during an active Flow Session → start/stop an utterance
+  // while we run in the background.
+  useEffect(() => {
+    const sub = addRecordToggleListener(() => {
+      const d = dictationRef.current;
+      if (d.state === 'listening') {
+        d.stop();
+      } else {
+        flowUtteranceRef.current = true;
+        d.start();
+      }
+    });
+    return () => sub?.remove();
+  }, []);
+
+  // After each utterance ends, re-assert the keep-alive so iOS doesn't suspend us
+  // between dictations (the speech lib can reconfigure the audio session on stop).
+  useEffect(() => {
+    if (!listening && sessionActive) reassertFlowSession();
+  }, [listening, sessionActive]);
+
+  const endSession = useCallback(() => {
+    stopFlowSession();
+    stopLiveActivity();
+    setSessionActive(false);
+    haptic.tap();
+  }, []);
 
   // Keyboard deep-link (vibeflow://record) asks us to start immediately, and marks
   // this session as keyboard-initiated so we auto-save the result for the keyboard.
@@ -115,12 +179,18 @@ export function TalkScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordNonce]);
 
-  // Flow Session Live Activity (Dynamic Island): show it while listening, and keep
-  // the live transcript updated. Ends when we stop. (Stage 1 of the background session.)
+  // Live Activity (Dynamic Island): while dictating it shows "Listening…" with the
+  // live transcript; while a Flow Session is idle it stays up as the session pill.
   useEffect(() => {
-    if (listening) startLiveActivity('Listening…');
-    else stopLiveActivity();
-  }, [listening]);
+    if (listening) {
+      startLiveActivity('Listening…');
+    } else if (sessionActive) {
+      startLiveActivity('Ready'); // no-op if already running
+      updateLiveActivity('Ready — tap the mic on your keyboard', '');
+    } else {
+      stopLiveActivity();
+    }
+  }, [listening, sessionActive]);
   useEffect(() => {
     if (listening) updateLiveActivity('Listening…', dictation.partial);
   }, [dictation.partial, listening]);
@@ -133,6 +203,7 @@ export function TalkScreen() {
   }, [toast]);
 
   const toggle = () => {
+    flowUtteranceRef.current = false; // manual tap → this is an in-app dictation
     if (listening) dictation.stop();
     else dictation.start();
   };
@@ -165,6 +236,16 @@ export function TalkScreen() {
         </View>
         <Badge label={settings.onDeviceOnly ? 'ON-DEVICE' : 'CLOUD'} tone={settings.onDeviceOnly ? 'brand' : 'amber'} />
       </View>
+
+      {sessionActive ? (
+        <View style={styles.sessionBar}>
+          <View style={styles.sessionDot} />
+          <Text style={styles.sessionText}>
+            Flow Session on — dictate from the keyboard mic, no switching
+          </Text>
+          <GhostButton label="End" tone="danger" onPress={endSession} />
+        </View>
+      ) : null}
 
       <View style={styles.center}>
         <Text style={styles.prompt}>
@@ -349,6 +430,21 @@ const styles = StyleSheet.create({
 
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   prompt: { color: Colors.ink, fontSize: 22, fontWeight: '700', marginBottom: 26 },
+
+  sessionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: Radius.chip,
+    backgroundColor: 'rgba(124,92,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(124,92,255,0.35)',
+  },
+  sessionDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.brand },
+  sessionText: { flex: 1, color: Colors.ink, fontSize: 12.5, lineHeight: 17 },
 
   micArea: { width: 150, height: 150, alignItems: 'center', justifyContent: 'center' },
   ring: { position: 'absolute', width: 120, height: 120, borderRadius: 60, backgroundColor: Colors.brand },
