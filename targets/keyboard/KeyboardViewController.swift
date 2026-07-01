@@ -30,6 +30,19 @@ final class KeyboardViewController: UIInputViewController {
     // iOS's built-in spell/prediction engine — powers live suggestions + autocorrect.
     private let textChecker = UITextChecker()
 
+    /// UITextChecker language for suggestions/autocorrect, derived from the user's
+    /// selected language (shared via the App Group). Falls back to en_US when iOS
+    /// has no dictionary for it.
+    private var checkerLang: String {
+        let raw = store?.string(forKey: "kbd_language") ?? "en-US"
+        let candidate = raw.replacingOccurrences(of: "-", with: "_")
+        let available = UITextChecker.availableLanguages
+        if available.contains(candidate) { return candidate }
+        let base = String(candidate.prefix(2))
+        if available.contains(base) { return base }
+        return "en_US"
+    }
+
     private let brand = UIColor(red: 0.486, green: 0.361, blue: 1.0, alpha: 1) // #7C5CFF
 
     // MARK: State
@@ -147,11 +160,11 @@ final class KeyboardViewController: UIInputViewController {
         let ns = word as NSString
         let full = NSRange(location: 0, length: ns.length)
         var picks: [String] = []
-        let mis = textChecker.rangeOfMisspelledWord(in: word, range: full, startingAt: 0, wrap: false, language: "en_US")
+        let mis = textChecker.rangeOfMisspelledWord(in: word, range: full, startingAt: 0, wrap: false, language: checkerLang)
         if mis.location != NSNotFound {
-            picks = textChecker.guesses(forWordRange: mis, in: word, language: "en_US") ?? []
+            picks = textChecker.guesses(forWordRange: mis, in: word, language: checkerLang) ?? []
         } else {
-            picks = textChecker.completions(forPartialWordRange: full, in: word, language: "en_US") ?? []
+            picks = textChecker.completions(forPartialWordRange: full, in: word, language: checkerLang) ?? []
         }
         picks = picks.filter { $0.lowercased() != word.lowercased() }
         if picks.isEmpty { showIdleSuggestions(); return }
@@ -461,9 +474,9 @@ final class KeyboardViewController: UIInputViewController {
         if refusedCorrections.contains(key) { return }   // user insists on this spelling
         let ns = word as NSString
         let full = NSRange(location: 0, length: ns.length)
-        let mis = textChecker.rangeOfMisspelledWord(in: word, range: full, startingAt: 0, wrap: false, language: "en_US")
+        let mis = textChecker.rangeOfMisspelledWord(in: word, range: full, startingAt: 0, wrap: false, language: checkerLang)
         guard mis.location != NSNotFound,
-              let top = textChecker.guesses(forWordRange: mis, in: word, language: "en_US")?.first,
+              let top = textChecker.guesses(forWordRange: mis, in: word, language: checkerLang)?.first,
               top.lowercased() != key,
               !top.contains(" ") else { return }
         // If we already corrected this exact word once and the user typed it again,
@@ -524,13 +537,17 @@ final class KeyboardViewController: UIInputViewController {
         armed = false
     }
 
-    /// Opening a URL from a keyboard extension requires "Allow Full Access".
+    /// Opening a URL from a keyboard extension requires "Allow Full Access". The old
+    /// `openURL:` selector was removed long ago, so walk the responder chain to the
+    /// UIApplication and call the modern `open(_:)`.
     private func openApp() {
         guard let url = URL(string: recordURL) else { return }
         var responder: UIResponder? = self
-        let selector = sel_registerName("openURL:")
         while let r = responder {
-            if r.responds(to: selector) { r.perform(selector, with: url); return }
+            if let app = r as? UIApplication {
+                app.open(url, options: [:], completionHandler: nil)
+                return
+            }
             responder = r.next
         }
     }

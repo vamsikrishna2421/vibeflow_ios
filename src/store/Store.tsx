@@ -16,6 +16,7 @@ import React, {
 } from 'react';
 
 import { defaultCurationOptions } from '@/core';
+import { setItem } from './appGroup';
 import { syncToAppGroup } from './appGroupSync';
 import { kvGet, kvSet } from './kv';
 import {
@@ -224,11 +225,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     kvSet(STORAGE_KEY, JSON.stringify(persisted));
   }, [state]);
 
-  // 3. Mirror to the App Group whenever the keyboard-visible data changes.
+  // 3. Mirror to the App Group whenever the keyboard-visible data changes, plus the
+  //    selected language so the keyboard can localise autocorrect/suggestions.
   useEffect(() => {
     if (!state.hydrated) return;
     syncToAppGroup(state.history, state.snippets);
-  }, [state.history, state.snippets, state.hydrated]);
+    setItem('kbd_language', state.settings.language);
+  }, [state.history, state.snippets, state.settings.language, state.hydrated]);
 
   const actions = useMemo<StoreActions>(
     () => ({

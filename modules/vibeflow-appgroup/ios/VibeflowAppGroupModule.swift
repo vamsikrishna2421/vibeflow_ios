@@ -19,9 +19,15 @@ public class VibeflowAppGroupModule: Module {
       self.store?.set(value, forKey: key)
     }
 
-    // Read a string back (mainly for debugging / parity checks from JS).
+    // Read a string back. Uses CFPreferences with a forced sync so we always get
+    // the CURRENT cross-process value (the keyboard extension writes flags like
+    // kbd_full_access from another process; plain UserDefaults can read a stale cache).
     Function("getItem") { (key: String) -> String? in
-      self.store?.string(forKey: key)
+      CFPreferencesAppSynchronize(self.appGroup as CFString)
+      if let v = CFPreferencesCopyAppValue(key as CFString, self.appGroup as CFString) as? String {
+        return v
+      }
+      return self.store?.string(forKey: key)
     }
 
     Function("removeItem") { (key: String) -> Void in
