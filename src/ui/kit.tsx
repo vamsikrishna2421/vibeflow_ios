@@ -100,6 +100,8 @@ export function Screen({
       style={styles.screen}
       contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: 48 }}
       keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets
+      keyboardDismissMode="interactive"
     >
       {body}
     </ScrollView>

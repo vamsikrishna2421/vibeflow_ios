@@ -45,6 +45,11 @@ final class KeyboardViewController: UIInputViewController {
     private var lastSpaceTap: Date = .distantPast
     private var backspaceTimer: Timer?
 
+    // Autocorrect memory: words we've corrected once, and words the user re-typed
+    // afterwards (so we stop "fighting" them — like the system keyboard).
+    private var correctedOnce: Set<String> = []
+    private var refusedCorrections: Set<String> = []
+
     // MARK: Views / tracking
     private var suggestionsStack: UIStackView!
     private var rowsStack: UIStackView!
@@ -155,7 +160,6 @@ final class KeyboardViewController: UIInputViewController {
         var slots = [word] + picks                 // keep raw word first so you can keep what you typed
         slots = Array(slots.prefix(3))
         for (i, s) in slots.enumerated() {
-            if i > 0 { suggestionsStack.addArrangedSubview(divider()) }
             let b = suggestionButton(title: s, faint: i == 0)
             b.addAction(UIAction { [weak self] _ in self?.replaceCurrentWord(with: s) }, for: .touchUpInside)
             suggestionsStack.addArrangedSubview(b)
@@ -171,8 +175,7 @@ final class KeyboardViewController: UIInputViewController {
             suggestionsStack.addArrangedSubview(hint)
             return
         }
-        for (i, text) in recents.enumerated() {
-            if i > 0 { suggestionsStack.addArrangedSubview(divider()) }
+        for (_, text) in recents.enumerated() {
             let oneLine = text.replacingOccurrences(of: "\n", with: " ")
             let b = suggestionButton(title: String(oneLine.prefix(20)), faint: false)
             b.addAction(UIAction { [weak self] _ in self?.insert(text) }, for: .touchUpInside)
@@ -454,13 +457,22 @@ final class KeyboardViewController: UIInputViewController {
     private func autocorrectCurrentWord() {
         let word = currentWord()
         guard word.count >= 3 else { return }
+        let key = word.lowercased()
+        if refusedCorrections.contains(key) { return }   // user insists on this spelling
         let ns = word as NSString
         let full = NSRange(location: 0, length: ns.length)
         let mis = textChecker.rangeOfMisspelledWord(in: word, range: full, startingAt: 0, wrap: false, language: "en_US")
         guard mis.location != NSNotFound,
               let top = textChecker.guesses(forWordRange: mis, in: word, language: "en_US")?.first,
-              top.lowercased() != word.lowercased(),
+              top.lowercased() != key,
               !top.contains(" ") else { return }
+        // If we already corrected this exact word once and the user typed it again,
+        // they meant it — stop correcting it (matches the system keyboard).
+        if correctedOnce.contains(key) {
+            refusedCorrections.insert(key)
+            return
+        }
+        correctedOnce.insert(key)
         for _ in 0..<ns.length { textDocumentProxy.deleteBackward() }
         textDocumentProxy.insertText(top)
     }
