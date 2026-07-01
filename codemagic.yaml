@@ -12,9 +12,10 @@ workflows:
         - ios-creds    # Codemagic variable group: ASC API key id/issuer/private key
       vars:
         BUNDLE_ID: com.vibeflow.mobile
-        # The keyboard extension target ships in the same IPA and needs its own
-        # provisioning profile; app-store-connect --create handles both bundle ids.
+        # The keyboard extension + Live Activity widget ship in the same IPA and each
+        # needs its own provisioning profile; app-store-connect --create handles them.
         KEYBOARD_BUNDLE_ID: com.vibeflow.mobile.keyboard
+        WIDGET_BUNDLE_ID: com.vibeflow.mobile.widget
 
     triggering:
       events: []   # manual builds only — start from the Codemagic dashboard
@@ -50,6 +51,7 @@ workflows:
         script: |
           app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
           app-store-connect fetch-signing-files "$KEYBOARD_BUNDLE_ID" --type IOS_APP_STORE --create
+          app-store-connect fetch-signing-files "$WIDGET_BUNDLE_ID" --type IOS_APP_STORE --create
 
       - name: Add certificates to keychain
         script: keychain add-certificates
