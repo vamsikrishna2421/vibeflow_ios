@@ -31,6 +31,9 @@ export function TalkScreen() {
   const [toast, setToast] = useState<string | null>(null);
   const draftRef = useRef('');
   draftRef.current = draft;
+  // True while a recording was started by the keyboard's mic (vibeflow://record):
+  // we auto-save that dictation so the keyboard can type it when you switch back.
+  const fromKeyboardRef = useRef(false);
 
   const config = useMemo(
     () => buildPipelineConfig(settings, snippets, vocabulary, corrections),
@@ -52,13 +55,20 @@ export function TalkScreen() {
       const next = draftRef.current ? draftRef.current + outcome.text : outcome.text;
       setDraft(next);
       if (settings.haptics) haptic.success();
+      // Started from the keyboard mic → save it so the keyboard auto-types it on return.
+      if (fromKeyboardRef.current) {
+        fromKeyboardRef.current = false;
+        addDictation(next.trim());
+        flashToast('Saved — switch back to the keyboard and it types automatically');
+        return;
+      }
       if (settings.autoCopy) {
         Clipboard.setStringAsync(next.trim()).catch(() => {});
         flashToast('Copied — open any app and paste, or use the VibeFlow keyboard');
       }
     },
     // applyCommand defined below is stable via setDraft updater
-    [settings, config, flashToast],
+    [settings, config, flashToast, addDictation],
   );
 
   const applyCommand = useCallback((command: VoiceCommand) => {
@@ -86,9 +96,11 @@ export function TalkScreen() {
   });
   const listening = dictation.state === 'listening';
 
-  // Keyboard deep-link (vibeflow://record) asks us to start immediately.
+  // Keyboard deep-link (vibeflow://record) asks us to start immediately, and marks
+  // this session as keyboard-initiated so we auto-save the result for the keyboard.
   useEffect(() => {
     if (recordNonce > 0 && dictation.state === 'idle') {
+      fromKeyboardRef.current = true;
       dictation.start();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
