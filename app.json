@@ -8,9 +8,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0B0A14",
-    "runtimeVersion": {
-      "policy": "fingerprint"
-    },
+    "runtimeVersion": "2",
     "updates": {
       "url": "https://u.expo.dev/c9f0a4af-b79f-4ef5-887f-3f8a67ff31c5",
       "requestHeaders": {
@@ -24,7 +22,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.vibeflow.mobile",
-      "buildNumber": "1.0.5",
+      "buildNumber": "1.0.6",
       "appleTeamId": "CJ8SV692GN",
       "entitlements": {
         "com.apple.security.application-groups": [
