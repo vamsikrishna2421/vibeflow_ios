@@ -23,7 +23,7 @@
   "submit": {
     "testflight": {
       "ios": {
-        "ascAppId": "REPLACE_WITH_ASC_APP_ID"
+        "ascAppId": "6786156900"
       }
     }
   }

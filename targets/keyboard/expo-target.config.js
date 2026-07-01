@@ -9,6 +9,9 @@
 module.exports = (config) => ({
   type: 'keyboard',
   name: 'VibeFlowKeyboard',
+  // Pin the extension bundle id so it matches the App ID registered in the Apple
+  // Developer portal (com.vibeflow.mobile.keyboard) instead of being auto-derived.
+  bundleIdentifier: 'com.vibeflow.mobile.keyboard',
   // Inherit the same App Group the app writes to, so the keyboard can read the
   // latest dictation + recents without any "Full Access".
   entitlements: {
