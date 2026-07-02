@@ -11,7 +11,7 @@ import { setItem } from '@/store/appGroup';
 import { UpdateBanner } from '@/ui/UpdateBanner';
 
 import { flowSessionActive } from './modules/vibeflow-flowsession';
-import { Colors } from '@/theme/colors';
+import { Colors, isLight } from '@/theme/colors';
 
 /**
  * App entry. Providers wrap the tree:
@@ -25,7 +25,7 @@ export default function App() {
       <SafeAreaProvider>
         <StoreProvider>
           <NavProvider>
-            <StatusBar style="light" />
+            <StatusBar style={isLight ? "dark" : "light"} />
             <DeepLinkBridge />
             <StaleSessionGuard />
             <RootNavigator />

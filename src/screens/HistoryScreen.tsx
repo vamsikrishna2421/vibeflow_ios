@@ -143,7 +143,7 @@ function StatsCard({ history }: { history: Dictation[] }) {
 
 const statStyles = StyleSheet.create({
   edge: { borderRadius: Radius.card + 1.5, padding: 1.5, marginBottom: 14 },
-  card: { backgroundColor: '#151022', borderRadius: Radius.card, padding: 16, gap: 12 },
+  card: { backgroundColor: Colors.statInner, borderRadius: Radius.card, padding: 16, gap: 12 },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   kicker: { color: Colors.inkFaint, fontSize: 11, fontWeight: '800', letterSpacing: 1.6 },
   streakChip: {
@@ -387,7 +387,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderRadius: Radius.card,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.07)',
+    borderColor: Colors.hairline,
     padding: 14,
   },
   entryPinned: {
@@ -419,7 +419,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.08)',
+    borderTopColor: Colors.hairline,
   },
   copyHint: { color: Colors.inkFaint, fontSize: 11 },
   entryActions: { flexDirection: 'row', gap: 8 },

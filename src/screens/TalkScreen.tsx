@@ -798,7 +798,7 @@ const styles = StyleSheet.create({
   wave: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 50, marginTop: 22 },
   bar: { width: 5, borderRadius: 3 },
 
-  buildStamp: { position: 'absolute', bottom: 2, alignSelf: 'center', color: 'rgba(255,255,255,0.28)', fontSize: 10 },
+  buildStamp: { position: 'absolute', bottom: 2, alignSelf: 'center', color: Colors.inkFaint, fontSize: 10, opacity: 0.6 },
 
   auroraBlob: { position: 'absolute', width: 420, height: 420 },
   auroraFill: { flex: 1, borderRadius: 210 },
@@ -813,7 +813,7 @@ const styles = StyleSheet.create({
     maxHeight: 130,
     overflow: 'hidden',
   },
-  kWord: { color: 'rgba(255,255,255,0.55)', fontSize: 22, lineHeight: 32, fontWeight: '600' },
+  kWord: { color: Colors.karaokeDim, fontSize: 22, lineHeight: 32, fontWeight: '600' },
   kWordHot: { color: Colors.ink, textShadowColor: 'rgba(124,92,255,0.8)', textShadowRadius: 12, textShadowOffset: { width: 0, height: 0 } },
 
   burstWrap: { position: 'absolute', alignSelf: 'center', top: '38%', alignItems: 'center', justifyContent: 'center' },

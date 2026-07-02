@@ -9,11 +9,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useState } from 'react';
+import * as Updates from 'expo-updates';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CurationOptions } from '@/core';
 import { useNav } from '@/navigation/nav';
 import { LANGUAGES, languageLabel, useStore } from '@/store';
+import { getItem, removeItem, setItem } from '@/store/appGroup';
 import { Colors, Radius, Spacing } from '@/theme/colors';
 import {
   Badge,
@@ -31,6 +33,26 @@ export function SettingsScreen() {
   const { settings, updateSettings, premium, snippets, vocabulary, corrections } = useStore();
   const { push } = useNav();
   const [langOpen, setLangOpen] = useState(false);
+  // Appearance: explicit choice persisted in the App Group; styles resolve at JS
+  // launch, so applying re-themes via an instant reload.
+  const [themePref, setThemePref] = useState<'system' | 'dark' | 'light'>(() => {
+    try {
+      const v = getItem('app_theme');
+      return v === 'dark' || v === 'light' ? v : 'system';
+    } catch {
+      return 'system';
+    }
+  });
+  const applyTheme = (v: 'system' | 'dark' | 'light') => {
+    if (v === themePref) return;
+    haptic.tap();
+    setThemePref(v);
+    try {
+      if (v === 'system') removeItem('app_theme');
+      else setItem('app_theme', v);
+    } catch {}
+    setTimeout(() => Updates.reloadAsync().catch(() => {}), 150);
+  };
 
   // Patch a subset of the curation pipeline toggles in one shot.
   const setCuration = (patch: Partial<CurationOptions>) =>
@@ -78,6 +100,33 @@ export function SettingsScreen() {
           </LinearGradient>
         </Pressable>
       ) : null}
+
+      {/* Appearance ------------------------------------------------------------ */}
+      <SectionTitle>Appearance</SectionTitle>
+      <Card style={styles.segCard}>
+        <View style={styles.segRow}>
+          {(
+            [
+              { key: 'system', label: 'System', icon: 'phone-portrait-outline' },
+              { key: 'dark', label: 'Dark', icon: 'moon-outline' },
+              { key: 'light', label: 'Light', icon: 'sunny-outline' },
+            ] as const
+          ).map((opt) => {
+            const active = themePref === opt.key;
+            return (
+              <Pressable
+                key={opt.key}
+                onPress={() => applyTheme(opt.key)}
+                style={({ pressed }) => [styles.seg, active && styles.segActive, pressed && { opacity: 0.8 }]}
+              >
+                <Ionicons name={opt.icon} size={16} color={active ? '#fff' : Colors.inkSoft} />
+                <Text style={[styles.segText, active && styles.segTextActive]}>{opt.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text style={styles.segHint}>Switching restarts the app for an instant re-theme.</Text>
+      </Card>
 
       {/* Recognition ---------------------------------------------------------- */}
       <SectionTitle>Recognition</SectionTitle>
@@ -346,6 +395,25 @@ const styles = StyleSheet.create({
   bannerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 
   group: { paddingHorizontal: 16 },
+
+  segCard: { gap: 10 },
+  segRow: { flexDirection: 'row', gap: 8 },
+  seg: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: Colors.chipBg,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  segActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
+  segText: { color: Colors.inkSoft, fontSize: 13.5, fontWeight: '600' },
+  segTextActive: { color: '#fff' },
+  segHint: { color: Colors.inkFaint, fontSize: 11.5 },
 
   sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
 
