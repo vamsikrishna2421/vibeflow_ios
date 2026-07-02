@@ -7,6 +7,10 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavProvider, useNav } from '@/navigation/nav';
 import { RootNavigator } from '@/navigation/RootNavigator';
 import { StoreProvider } from '@/store';
+import { setItem } from '@/store/appGroup';
+import { UpdateBanner } from '@/ui/UpdateBanner';
+
+import { flowSessionActive } from './modules/vibeflow-flowsession';
 import { Colors } from '@/theme/colors';
 
 /**
@@ -23,12 +27,27 @@ export default function App() {
           <NavProvider>
             <StatusBar style="light" />
             <DeepLinkBridge />
+            <StaleSessionGuard />
             <RootNavigator />
+            <UpdateBanner />
           </NavProvider>
         </StoreProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
+}
+
+/**
+ * If the app was force-quit mid-session, the App Group's flow_session_active flag
+ * stays stale-true — the keyboard then skips the bootstrap hop and toggles a dead
+ * app (mic turns red, nothing listens). On every launch, reconcile the flag with
+ * the module's real in-process state.
+ */
+function StaleSessionGuard() {
+  useEffect(() => {
+    if (!flowSessionActive()) setItem('flow_session_active', 'false');
+  }, []);
+  return null;
 }
 
 /**
