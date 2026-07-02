@@ -13,6 +13,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, AppState, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
+
 import { VoiceCommand } from '@/core';
 import { useDictation } from '@/hooks/useDictation';
 import { useNav } from '@/navigation/nav';
@@ -176,15 +178,33 @@ export function TalkScreen() {
 
   // Keyboard deep-link (vibeflow://record) asks us to start immediately, and marks
   // this session as keyboard-initiated so we auto-save the result for the keyboard.
+  // Keyboard mic → bootstrap hop. The product rule: you NEVER dictate inside
+  // VibeFlow. This visit only (a) gets mic/speech permission, (b) turns the Flow
+  // Session on, then tells you to go straight back — every utterance (including
+  // the first) is spoken inside the host app via the keyboard mic.
   useEffect(() => {
     if (recordNonce > 0 && dictation.state === 'idle') {
-      fromKeyboardRef.current = true;
       setKbVisit(true);
-      // Small warm-up delay: on a cold launch from the keyboard, the audio engine
-      // needs a moment or SFSpeechRecognizer reports "no speech". (The hook also
-      // retries once as a backstop.)
-      const t = setTimeout(() => dictation.start(), 500);
-      return () => clearTimeout(t);
+      (async () => {
+        try {
+          const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+          if (!perm?.granted) return;
+        } catch {}
+        let ok = startFlowSession();
+        if (!ok) {
+          // Audio session can need a beat on cold launch — retry once.
+          await new Promise((r) => setTimeout(r, 800));
+          ok = startFlowSession();
+        }
+        if (ok) {
+          setSessionActive(true);
+        } else {
+          // Older native build without the session module: fall back to the
+          // record-here round-trip so the mic still works.
+          fromKeyboardRef.current = true;
+          setTimeout(() => dictationRef.current.start(), 300);
+        }
+      })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordNonce]);
@@ -273,12 +293,15 @@ export function TalkScreen() {
         </View>
       ) : null}
 
-      {kbVisit && !listening && showDraft ? (
+      {kbVisit && !listening ? (
         <View style={[styles.sessionBar, { borderColor: 'rgba(52,199,89,0.45)', backgroundColor: 'rgba(52,199,89,0.10)' }]}>
           <Ionicons name="checkmark-circle" size={18} color={Colors.success} />
           <Text style={styles.sessionText}>
-            Saved for your keyboard. Tap ‹ back (top-left) — it types itself.
-            {'\n'}Or tap the mic to add more.
+            {sessionActive
+              ? 'Flow Session is ON. Tap ‹ back (top-left), then tap the keyboard mic — you dictate right inside your app.'
+              : showDraft
+                ? 'Saved for your keyboard. Tap ‹ back (top-left) — it types itself.'
+                : 'Starting your Flow Session…'}
           </Text>
         </View>
       ) : null}
