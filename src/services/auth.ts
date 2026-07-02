@@ -6,10 +6,7 @@
  *    the vibeflow:// scheme — no extra native SDK needed.
  * After sign-in we claim this device's slot (one active mobile device per user).
  */
-import * as AppleAuthentication from 'expo-apple-authentication';
-import * as Crypto from 'expo-crypto';
 import * as Linking from 'expo-linking';
-import * as WebBrowser from 'expo-web-browser';
 
 import { kvGet, kvSet } from '@/store/kv';
 
@@ -19,12 +16,21 @@ import { FUNCTIONS_URL, SUPABASE_ANON_KEY, supabase } from './supabase';
 export async function deviceId(): Promise<string> {
   const existing = await kvGet('device_id');
   if (existing) return existing;
-  const id = Crypto.randomUUID();
+  // Lazy import: expo-crypto's native module only exists in builds ≥ runtime 3.
+  let id: string;
+  try {
+    const Crypto = await import('expo-crypto');
+    id = Crypto.randomUUID();
+  } catch {
+    id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
   await kvSet('device_id', id);
   return id;
 }
 
 export async function signInWithApple(): Promise<void> {
+  // Lazy import so this file stays loadable on binaries without the native module.
+  const AppleAuthentication = await import('expo-apple-authentication');
   const credential = await AppleAuthentication.signInAsync({
     requestedScopes: [
       AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
@@ -41,6 +47,7 @@ export async function signInWithApple(): Promise<void> {
 }
 
 export async function signInWithGoogle(): Promise<void> {
+  const WebBrowser = await import('expo-web-browser');
   const redirectTo = Linking.createURL('auth');
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',

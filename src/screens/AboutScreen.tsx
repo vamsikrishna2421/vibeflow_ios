@@ -61,10 +61,11 @@ export function AboutScreen() {
           <Text style={[Type.label, { flex: 1 }]}>Private by design</Text>
         </View>
         <Text style={[Type.bodySoft, styles.privacyBody]}>
-          Speech recognition happens entirely on your iPhone — your voice never leaves the
-          device. The VibeFlow keyboard requests no “Full Access,” so it can’t see what you
-          type elsewhere. Your dictations and snippets are shared between the app and the
-          keyboard through a private App Group on your device alone.
+          Speech recognition can run entirely on your iPhone, and the keyboard's typing
+          intelligence (suggestions, autocorrect, learning) is 100% on-device — what you
+          type is never collected. Full Access is used only so the keyboard and app can
+          talk through a private App Group on your phone. Optional AI polish sends just
+          that dictation's text to VibeFlow's secure cloud — and nothing else, ever.
         </Text>
       </Card>
 

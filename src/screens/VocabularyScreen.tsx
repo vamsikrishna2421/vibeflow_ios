@@ -11,6 +11,7 @@ import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useNav } from '@/navigation/nav';
+import { getItem, setItem } from '@/store/appGroup';
 import { useStore } from '@/store';
 import { Colors, Spacing } from '@/theme/colors';
 import {
@@ -158,7 +159,56 @@ export function VocabularyScreen() {
           <Text style={styles.tip}>Tap a word to remove it.</Text>
         </>
       )}
+
+      {/* Words the keyboard picked up from your typing (on-device learning). */}
+      <LearnedWords />
     </Screen>
+  );
+}
+
+/**
+ * The keyboard's self-learned lexicon (words typed 2+ times — protected from
+ * autocorrect, offered as completions). Read from the App Group; tapping a word
+ * un-learns it.
+ */
+function LearnedWords() {
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    try {
+      const json = getItem('kbd_learned_counts');
+      if (json) setCounts(JSON.parse(json));
+    } catch {}
+  }, []);
+
+  const words = Object.entries(counts)
+    .filter(([, c]) => c >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 40);
+  if (words.length === 0) return null;
+
+  const unlearn = (word: string) => {
+    const next = { ...counts };
+    delete next[word];
+    setCounts(next);
+    try {
+      setItem('kbd_learned_counts', JSON.stringify(next));
+    } catch {}
+    haptic.tap();
+  };
+
+  return (
+    <>
+      <SectionTitle>Learned from your typing</SectionTitle>
+      <Text style={[Type.bodySoft, { marginBottom: 10 }]}>
+        Your keyboard picked these up on-device — it won't autocorrect them and will
+        suggest them as you type. Tap to un-learn.
+      </Text>
+      <View style={styles.chips}>
+        {words.map(([w, c]) => (
+          <Chip key={w} label={`${w} · ${c}`} icon="close" tone="default" onPress={() => unlearn(w)} />
+        ))}
+      </View>
+    </>
   );
 }
 
