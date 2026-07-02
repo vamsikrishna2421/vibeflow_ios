@@ -23,6 +23,8 @@ import { useNav } from '@/navigation/nav';
 import { buildPipelineConfig, runDictation, useStore } from '@/store';
 import { getItem, setItem } from '@/store/appGroup';
 import { hostAppFor } from '@/store/hostApps';
+import { polish } from '@/services/polish';
+import { useAuth } from '@/hooks/useAuth';
 import { Colors, Radius, micGradient } from '@/theme/colors';
 import { Badge, GhostButton, haptic } from '@/ui/kit';
 import {
@@ -51,6 +53,9 @@ export function TalkScreen() {
     [history],
   );
   const { recordNonce, recordHost } = useNav();
+  const { signedIn } = useAuth();
+  const signedInRef = useRef(signedIn);
+  signedInRef.current = signedIn;
   const hostApp = hostAppFor(recordHost);
 
   const [draft, setDraft] = useState('');
@@ -120,6 +125,19 @@ export function TalkScreen() {
             setSessionActive(true);
           }
         }
+        return;
+      }
+      if (settings.smartFormat && signedInRef.current) {
+        flashToast('✨ Polishing…');
+        polish(next.trim()).then((r) => {
+          if (r.ok && r.text) {
+            setDraft(r.text);
+            flashToast(r.isPro ? '✨ Polished' : `✨ Polished — ${r.remaining ?? '?'} free left this week`);
+            if (settings.autoCopy) Clipboard.setStringAsync(r.text).catch(() => {});
+          } else if (r.error === 'limit_reached') {
+            flashToast('Free polishes used up this week — Pro is unlimited');
+          }
+        });
         return;
       }
       if (settings.autoCopy) {

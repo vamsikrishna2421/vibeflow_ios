@@ -42,7 +42,8 @@
         "UISupportedInterfaceOrientations": [
           "UIInterfaceOrientationPortrait"
         ]
-      }
+      },
+      "usesAppleSignIn": true
     },
     "android": {
       "package": "com.vibeflow.mobile",
@@ -92,7 +93,8 @@
             "minSdkVersion": 24
           }
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "extra": {
       "eas": {

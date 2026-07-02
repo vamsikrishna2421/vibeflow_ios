@@ -13,6 +13,8 @@ import * as Updates from 'expo-updates';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CurationOptions } from '@/core';
+import { useAuth } from '@/hooks/useAuth';
+import { signInWithApple, signInWithGoogle, signOut } from '@/services/auth';
 import { useNav } from '@/navigation/nav';
 import { LANGUAGES, languageLabel, useStore } from '@/store';
 import { getItem, removeItem, setItem } from '@/store/appGroup';
@@ -33,6 +35,20 @@ export function SettingsScreen() {
   const { settings, updateSettings, premium, snippets, vocabulary, corrections } = useStore();
   const { push } = useNav();
   const [langOpen, setLangOpen] = useState(false);
+  const { signedIn, email } = useAuth();
+  const [authBusy, setAuthBusy] = useState(false);
+  const runAuth = (fn: () => Promise<void>) => async () => {
+    if (authBusy) return;
+    setAuthBusy(true);
+    try {
+      await fn();
+      haptic.success();
+    } catch {
+      haptic.warning();
+    } finally {
+      setAuthBusy(false);
+    }
+  };
   // Appearance: explicit choice persisted in the App Group; styles resolve at JS
   // launch, so applying re-themes via an instant reload.
   const [themePref, setThemePref] = useState<'system' | 'dark' | 'light'>(() => {
@@ -66,9 +82,9 @@ export function SettingsScreen() {
 
   // Smart formatting is Pro-only: trying to enable it without Pro routes to the paywall.
   const onToggleSmart = (v: boolean) => {
-    if (v && !premium) {
+    if (v && !signedIn) {
       haptic.warning();
-      push('paywall');
+      // The free tier needs an account (50 polishes/week ride the backend quota).
       return;
     }
     updateSettings({ smartFormat: v });
@@ -100,6 +116,44 @@ export function SettingsScreen() {
           </LinearGradient>
         </Pressable>
       ) : null}
+
+      {/* Account & AI ----------------------------------------------------------- */}
+      <SectionTitle>Account &amp; AI</SectionTitle>
+      <Card style={{ gap: 12 }}>
+        {signedIn ? (
+          <>
+            <View style={styles.acctRow}>
+              <View style={styles.acctIcon}>
+                <Ionicons name="person" size={18} color={Colors.brand} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={Type.label}>{email ?? 'Signed in'}</Text>
+                <Text style={[Type.bodySoft, { marginTop: 2 }]}>
+                  50 free AI polishes / week · Pro = unlimited
+                </Text>
+              </View>
+            </View>
+            <Pressable onPress={runAuth(signOut)} style={({ pressed }) => [styles.signOutBtn, pressed && { opacity: 0.7 }]}>
+              <Text style={styles.signOutText}>Sign out</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Text style={Type.bodySoft}>
+              Sign in to unlock 50 free AI polishes a week — grammar, punctuation and
+              formatting, powered by VibeFlow's cloud.
+            </Text>
+            <Pressable disabled={authBusy} onPress={runAuth(signInWithApple)} style={({ pressed }) => [styles.appleBtn, pressed && { opacity: 0.85 }]}>
+              <Ionicons name="logo-apple" size={18} color="#000" />
+              <Text style={styles.appleBtnText}>Continue with Apple</Text>
+            </Pressable>
+            <Pressable disabled={authBusy} onPress={runAuth(signInWithGoogle)} style={({ pressed }) => [styles.googleBtn, pressed && { opacity: 0.85 }]}>
+              <Ionicons name="logo-google" size={16} color={Colors.ink} />
+              <Text style={styles.googleBtnText}>Continue with Google</Text>
+            </Pressable>
+          </>
+        )}
+      </Card>
 
       {/* Appearance ------------------------------------------------------------ */}
       <SectionTitle>Appearance</SectionTitle>
@@ -266,8 +320,8 @@ export function SettingsScreen() {
         <ToggleRow
           icon="color-wand-outline"
           label="Smart formatting"
-          subtitle="AI cleans grammar &amp; tone (Pro)"
-          value={premium ? settings.smartFormat : false}
+          subtitle={signedIn ? "AI cleans grammar &amp; tone — 50 free/week" : "Sign in above to enable"}
+          value={signedIn ? settings.smartFormat : false}
           onValueChange={onToggleSmart}
         />
       </Card>
@@ -397,6 +451,26 @@ const styles = StyleSheet.create({
   group: { paddingHorizontal: 16 },
 
   segCard: { gap: 10 },
+
+  acctRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  acctIcon: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(124,92,255,0.15)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  appleBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#FFFFFF', borderRadius: 999, paddingVertical: 13,
+  },
+  appleBtnText: { color: '#000', fontSize: 15, fontWeight: '700' },
+  googleBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: Colors.chipBg, borderRadius: 999, paddingVertical: 13,
+    borderWidth: 1, borderColor: Colors.outline,
+  },
+  googleBtnText: { color: Colors.ink, fontSize: 15, fontWeight: '600' },
+  signOutBtn: { alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 2 },
+  signOutText: { color: Colors.accentRed, fontSize: 13.5, fontWeight: '600' },
   segRow: { flexDirection: 'row', gap: 8 },
   seg: {
     flex: 1,

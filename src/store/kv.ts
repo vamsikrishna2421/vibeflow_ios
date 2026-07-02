@@ -42,3 +42,12 @@ export async function kvSet(key: string, value: string): Promise<void> {
     // best-effort persistence; ignore
   }
 }
+
+export async function kvRemove(key: string): Promise<void> {
+  try {
+    const db = await database();
+    await db.runAsync('DELETE FROM kv WHERE key = ?;', key);
+  } catch {
+    // best-effort
+  }
+}
