@@ -33,8 +33,13 @@ final class KeyboardViewController: UIInputViewController {
     // pushes the result back for immediate insertion.
     private let flowToggleName = "com.vibeflow.flow.toggle"
     private let flowResultName = "com.vibeflow.flow.result"
-    private var flowListening = false
+    private let flowStatusName = "com.vibeflow.flow.status"
+    /// Mic key state, driven by taps (optimistic) + status pings from the app.
+    private enum FlowMicState { case idle, listening, processing }
+    private var flowMicState: FlowMicState = .idle
     private var lastFlowInserted = ""
+    /// Failsafe: if the app doesn't answer a toggle quickly, it's dead — hop instead.
+    private var toggleAckTimer: Timer?
 
     // iOS's built-in spell/prediction engine — powers live suggestions + autocorrect.
     private let textChecker = UITextChecker()

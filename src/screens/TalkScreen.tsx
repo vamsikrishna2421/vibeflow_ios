@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
+import * as Updates from 'expo-updates';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, AppState, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,7 +21,7 @@ import { VoiceCommand } from '@/core';
 import { useDictation } from '@/hooks/useDictation';
 import { useNav } from '@/navigation/nav';
 import { buildPipelineConfig, runDictation, useStore } from '@/store';
-import { setItem } from '@/store/appGroup';
+import { getItem, setItem } from '@/store/appGroup';
 import { hostAppFor } from '@/store/hostApps';
 import { Colors, Radius, micGradient } from '@/theme/colors';
 import { Badge, GhostButton, haptic } from '@/ui/kit';
@@ -50,6 +51,15 @@ export function TalkScreen() {
 
   const [draft, setDraft] = useState('');
   const [toast, setToast] = useState<string | null>(null);
+  // Last flow status from the App Group — shown in the debug stamp so a failed
+  // background utterance is visible the moment the app is reopened.
+  const [lastFlowStatus, setLastFlowStatus] = useState<string | null>(null);
+  useEffect(() => {
+    const read = () => setLastFlowStatus(getItem('kbd_flow_status'));
+    read();
+    const sub = AppState.addEventListener('change', (s) => s === 'active' && read());
+    return () => sub.remove();
+  }, []);
   const draftRef = useRef('');
   draftRef.current = draft;
   // True for the whole keyboard-initiated visit (vibeflow://record → until the app
@@ -440,6 +450,12 @@ export function TalkScreen() {
           </Text>
         </View>
       ) : null}
+
+      {/* Code-version stamp: which OTA bundle is actually running (debug lifeline). */}
+      <Text style={styles.buildStamp}>
+        code {Updates.updateId ? Updates.updateId.slice(-8) : 'embedded'}
+        {lastFlowStatus ? ` · flow: ${lastFlowStatus}` : ''}
+      </Text>
     </View>
   );
 }
@@ -591,6 +607,7 @@ const styles = StyleSheet.create({
   wave: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 50, marginTop: 22 },
   bar: { width: 5, borderRadius: 3 },
 
+  buildStamp: { position: 'absolute', bottom: 2, alignSelf: 'center', color: 'rgba(255,255,255,0.28)', fontSize: 10 },
   live: { color: Colors.ink, fontSize: 18, lineHeight: 25, textAlign: 'center', marginTop: 26, paddingHorizontal: 8 },
   hint: { color: Colors.inkFaint, fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: 26, paddingHorizontal: 16 },
   error: { color: Colors.accentRed, fontSize: 14, textAlign: 'center', marginTop: 26, paddingHorizontal: 16 },
