@@ -290,6 +290,7 @@ export function TalkScreen() {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + 12 }]}>
+      <AuroraBackdrop />
       <View style={styles.headerRow}>
         <View style={styles.wordmarkRow}>
           <Text style={styles.wordmark}>Vibe</Text>
@@ -436,6 +437,57 @@ export function TalkScreen() {
   );
 }
 
+// --- aurora backdrop (slow-drifting brand gradients; pure ambience) -----------
+
+function AuroraBackdrop() {
+  const drift1 = useRef(new Animated.Value(0)).current;
+  const drift2 = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = (v: Animated.Value, duration: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(v, { toValue: 1, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(v, { toValue: 0, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ]),
+      );
+    const l1 = loop(drift1, 14000);
+    const l2 = loop(drift2, 19000);
+    l1.start();
+    l2.start();
+    return () => {
+      l1.stop();
+      l2.stop();
+    };
+  }, [drift1, drift2]);
+
+  const t1 = drift1.interpolate({ inputRange: [0, 1], outputRange: [-40, 30] });
+  const t2 = drift2.interpolate({ inputRange: [0, 1], outputRange: [30, -40] });
+  const r1 = drift1.interpolate({ inputRange: [0, 1], outputRange: ['-12deg', '8deg'] });
+  const r2 = drift2.interpolate({ inputRange: [0, 1], outputRange: ['10deg', '-10deg'] });
+
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <Animated.View style={[styles.auroraBlob, { top: -120, left: -80, transform: [{ translateY: t1 }, { rotate: r1 }] }]}>
+        <LinearGradient
+          colors={['rgba(124,92,255,0.32)', 'rgba(124,92,255,0)']}
+          start={{ x: 0.2, y: 0 }}
+          end={{ x: 0.9, y: 1 }}
+          style={styles.auroraFill}
+        />
+      </Animated.View>
+      <Animated.View style={[styles.auroraBlob, { bottom: -140, right: -100, transform: [{ translateY: t2 }, { rotate: r2 }] }]}>
+        <LinearGradient
+          colors={['rgba(84,160,255,0.22)', 'rgba(190,92,255,0.10)', 'rgba(84,160,255,0)']}
+          start={{ x: 0.8, y: 1 }}
+          end={{ x: 0.1, y: 0 }}
+          style={styles.auroraFill}
+        />
+      </Animated.View>
+    </View>
+  );
+}
+
 // --- mic button (pulse) ------------------------------------------------------
 
 function MicButton({
@@ -449,6 +501,7 @@ function MicButton({
 }) {
   const pulse = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(1)).current;
+  const breath = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (listening) {
@@ -464,6 +517,21 @@ function MicButton({
     pulse.setValue(0);
   }, [listening, pulse]);
 
+  // Idle "breathing" glow — the mic feels alive before you ever touch it.
+  useEffect(() => {
+    if (!listening) {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(breath, { toValue: 1, duration: 2600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(breath, { toValue: 0, duration: 2600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ]),
+      );
+      loop.start();
+      return () => loop.stop();
+    }
+    breath.setValue(0);
+  }, [listening, breath]);
+
   useEffect(() => {
     Animated.spring(scale, {
       toValue: 1 + (listening ? level * 0.12 : 0),
@@ -475,6 +543,8 @@ function MicButton({
 
   const ringScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.8] });
   const ringOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0] });
+  const breathScale = breath.interpolate({ inputRange: [0, 1], outputRange: [1.06, 1.22] });
+  const breathOpacity = breath.interpolate({ inputRange: [0, 1], outputRange: [0.1, 0.3] });
 
   return (
     <View style={styles.micArea}>
@@ -482,7 +552,11 @@ function MicButton({
         <Animated.View
           style={[styles.ring, { transform: [{ scale: ringScale }], opacity: ringOpacity }]}
         />
-      ) : null}
+      ) : (
+        <Animated.View
+          style={[styles.ring, { transform: [{ scale: breathScale }], opacity: breathOpacity }]}
+        />
+      )}
       <Animated.View style={{ transform: [{ scale }] }}>
         <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={listening ? 'Stop' : 'Start dictation'}>
           <LinearGradient
@@ -505,12 +579,13 @@ function Waveform({ listening, level }: { listening: boolean; level: number }) {
   const bars = useRef(Array.from({ length: BAR_COUNT }, () => new Animated.Value(0.2))).current;
 
   useEffect(() => {
-    const target = listening ? Math.max(0.15, level) : 0.12;
+    if (!listening) return;
+    const target = Math.max(0.15, level);
     const animations = bars.map((bar, i) => {
       // give each bar a slightly different response so it looks alive
       const variance = 0.6 + 0.5 * Math.abs(Math.sin((i + 1) * 1.7));
       return Animated.timing(bar, {
-        toValue: Math.min(1, target * variance + (listening ? 0.1 : 0)),
+        toValue: Math.min(1, target * variance + 0.1),
         duration: 140,
         easing: Easing.out(Easing.quad),
         useNativeDriver: false,
@@ -518,6 +593,23 @@ function Waveform({ listening, level }: { listening: boolean; level: number }) {
     });
     Animated.parallel(animations).start();
   }, [level, listening, bars]);
+
+  // Idle: a slow wave travels through the bars — the brand's waveform, alive.
+  useEffect(() => {
+    if (listening) return;
+    const loops = bars.map((bar, i) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(i * 130),
+          Animated.timing(bar, { toValue: 0.42, duration: 700, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+          Animated.timing(bar, { toValue: 0.12, duration: 700, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+          Animated.delay((BAR_COUNT - i) * 130),
+        ]),
+      ),
+    );
+    loops.forEach((l) => l.start());
+    return () => loops.forEach((l) => l.stop());
+  }, [listening, bars]);
 
   return (
     <View style={styles.wave}>
@@ -528,7 +620,7 @@ function Waveform({ listening, level }: { listening: boolean; level: number }) {
             styles.bar,
             {
               height: bar.interpolate({ inputRange: [0, 1], outputRange: [6, 46] }),
-              backgroundColor: listening ? Colors.brand : Colors.outline,
+              backgroundColor: listening ? Colors.brand : 'rgba(124,92,255,0.45)',
             },
           ]}
         />
@@ -584,6 +676,9 @@ const styles = StyleSheet.create({
   bar: { width: 5, borderRadius: 3 },
 
   buildStamp: { position: 'absolute', bottom: 2, alignSelf: 'center', color: 'rgba(255,255,255,0.28)', fontSize: 10 },
+
+  auroraBlob: { position: 'absolute', width: 420, height: 420 },
+  auroraFill: { flex: 1, borderRadius: 210 },
   live: { color: Colors.ink, fontSize: 18, lineHeight: 25, textAlign: 'center', marginTop: 26, paddingHorizontal: 8 },
   hint: { color: Colors.inkFaint, fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: 26, paddingHorizontal: 16 },
   error: { color: Colors.accentRed, fontSize: 14, textAlign: 'center', marginTop: 26, paddingHorizontal: 16 },
