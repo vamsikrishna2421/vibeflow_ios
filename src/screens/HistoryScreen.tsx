@@ -289,38 +289,53 @@ export function HistoryScreen() {
           />
         ) : (
           <View style={styles.list}>
-            {filtered.map((item) => (
-              <Card key={item.id} style={styles.entry}>
-                <Text style={styles.entryText} numberOfLines={5}>
-                  {item.text}
-                </Text>
+            {filtered.map((item) => {
+              const words = item.text.split(/\s+/).filter(Boolean).length;
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => onCopy(item.text)}
+                  accessibilityHint="Tap to copy"
+                  style={({ pressed }) => [
+                    styles.entry,
+                    item.pinned && styles.entryPinned,
+                    pressed && { opacity: 0.88, transform: [{ scale: 0.995 }] },
+                  ]}
+                >
+                  <View style={styles.entryHeader}>
+                    <View style={styles.timeChip}>
+                      <Ionicons name="mic" size={11} color={Colors.brand} />
+                      <Text style={styles.timeChipText}>{relativeTime(item.createdAt)}</Text>
+                    </View>
+                    <Text style={styles.wordCount}>{words} {words === 1 ? 'word' : 'words'}</Text>
+                    <View style={{ flex: 1 }} />
+                    {item.pinned ? <Ionicons name="star" size={14} color={Colors.amber} /> : null}
+                  </View>
 
-                <View style={styles.metaRow}>
-                  <Text style={Type.caption}>{relativeTime(item.createdAt).toUpperCase()}</Text>
-                  {item.pinned ? <Badge label="PINNED" tone="amber" /> : null}
-                </View>
+                  <Text style={styles.entryText} numberOfLines={4}>
+                    {item.text}
+                  </Text>
 
-                <View style={styles.actions}>
-                  <ActionButton
-                    icon="copy-outline"
-                    label="Copy"
-                    onPress={() => onCopy(item.text)}
-                  />
-                  <ActionButton
-                    icon={item.pinned ? 'star' : 'star-outline'}
-                    label={item.pinned ? 'Unpin' : 'Pin'}
-                    active={item.pinned}
-                    onPress={() => onTogglePin(item)}
-                  />
-                  <ActionButton
-                    icon="trash-outline"
-                    label="Delete"
-                    tone="danger"
-                    onPress={() => onDelete(item)}
-                  />
-                </View>
-              </Card>
-            ))}
+                  <View style={styles.entryFooter}>
+                    <Text style={styles.copyHint}>tap card to copy</Text>
+                    <View style={styles.entryActions}>
+                      <CircleAction
+                        icon={item.pinned ? 'star' : 'star-outline'}
+                        color={item.pinned ? Colors.amber : Colors.inkSoft}
+                        label={item.pinned ? 'Unpin' : 'Pin'}
+                        onPress={() => onTogglePin(item)}
+                      />
+                      <CircleAction
+                        icon="trash-outline"
+                        color={Colors.accentRed}
+                        label="Delete"
+                        onPress={() => onDelete(item)}
+                      />
+                    </View>
+                  </View>
+                </Pressable>
+              );
+            })}
           </View>
         )}
       </Screen>
@@ -337,31 +352,27 @@ export function HistoryScreen() {
   );
 }
 
-/** A compact, premium pill action used inside each history card. */
-function ActionButton({
+/** Small circular icon action on each history card. */
+function CircleAction({
   icon,
+  color,
   label,
   onPress,
-  tone = 'default',
-  active = false,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
+  color: string;
   label: string;
   onPress: () => void;
-  tone?: 'default' | 'danger';
-  active?: boolean;
 }) {
-  const color =
-    tone === 'danger' ? Colors.accentRed : active ? Colors.amber : Colors.inkSoft;
   return (
     <Pressable
       onPress={onPress}
+      hitSlop={8}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={({ pressed }) => [styles.action, pressed && { opacity: 0.6 }]}
+      style={({ pressed }) => [styles.circleBtn, pressed && { opacity: 0.6 }]}
     >
       <Ionicons name={icon} size={16} color={color} />
-      <Text style={[styles.actionLabel, { color }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -372,34 +383,54 @@ const styles = StyleSheet.create({
   search: { marginBottom: 16 },
   list: { gap: 12 },
 
-  entry: {},
-  entryText: { color: Colors.ink, fontSize: 16, lineHeight: 23 },
+  entry: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.card,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
+    padding: 14,
+  },
+  entryPinned: {
+    borderColor: 'rgba(255,184,77,0.45)',
+    shadowColor: Colors.amber,
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  entryText: { color: Colors.ink, fontSize: 15.5, lineHeight: 22.5 },
 
-  metaRow: {
+  entryHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  timeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(124,92,255,0.12)',
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  timeChipText: { color: Colors.inkSoft, fontSize: 11.5, fontWeight: '600' },
+  wordCount: { color: Colors.inkFaint, fontSize: 11.5 },
+
+  entryFooter: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.08)',
   },
-
-  actions: {
-    flexDirection: 'row',
+  copyHint: { color: Colors.inkFaint, fontSize: 11 },
+  entryActions: { flexDirection: 'row', gap: 8 },
+  circleBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
-    gap: 8,
-    marginTop: 14,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
-  action: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: Radius.pill,
-    backgroundColor: Colors.surfaceVariant,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.outline,
-  },
-  actionLabel: { fontSize: 13, fontWeight: '600' },
 
   toast: {
     position: 'absolute',
