@@ -1,88 +1,85 @@
 # VibeFlow — iOS
 
-A premium **offline voice keyboard** for iPhone: an Expo/React Native app that
-records and formats your voice on-device, plus a native **keyboard extension**
-that inserts your dictations into any app. Feature parity with the mature Android
-VibeFlow, built on the same stack as LUCY so **95% of iteration ships over-the-air
-(OTA)** — users just restart the app, no App Store update.
+A premium **voice keyboard** for iPhone: an Expo/React Native app plus a native
+**keyboard extension**, delivering Wispr-Flow-style **zero-hop dictation** — tap the
+mic on the keyboard, speak *inside WhatsApp (or any app)*, and your words appear at
+the cursor. Feature parity with the mature Android VibeFlow, sharing its Supabase
+managed AI backend (one user base across platforms).
 
-## Architecture (and the one hard iOS constraint)
+## The core product rule
 
-iOS **forbids microphone access inside a keyboard extension** (confirmed against
-Apple's own runtime error — extensions lack the record-audio entitlement, even
-with Full Access). So VibeFlow splits the job:
+**You never dictate inside VibeFlow.** The keyboard exists so you can read the
+conversation while replying. The app is a background engine; the only visit is a
+~2-second bootstrap hop that arms the audio session (iOS forbids keyboards from
+touching the mic, and a backgrounded app can't *start* an audio session — the same
+hop Wispr Flow does).
 
-```
-   VibeFlow app  (Expo / React Native, JS — OTA-updatable)
-   ────────────
-   record (expo-speech-recognition, on-device) →
-   TextPipeline (src/core, pure TS — same rules as Android) →
-   write latest + recents + snippets to the App Group ─────────┐
-                                                               ▼
-   VibeFlow keyboard  (native Swift target — NOT OTA-updatable, but thin & stable)
-   ─────────────────
-   read App Group → "Insert latest" / pick a recent / a snippet → insertText()
-```
-
-- **OTA boundary:** the app's JS (recording, the whole text pipeline, UI, AI
-  polish, paywall) rides EAS Update. The **keyboard extension is native code**, so
-  changes there need a Codemagic rebuild — keep it thin; put fast-moving logic in JS.
-- **No "Full Access":** the hand-off uses an **App Group** (`group.com.vibeflow.mobile`),
-  not the system pasteboard, so the keyboard requests no special access.
-
-## Layout
+## Architecture
 
 ```
-app.json / app.config.js   Expo config (bundle com.vibeflow.mobile, OTA channel `production`)
-eas.json                   EAS Build/Update profiles
-codemagic.yaml             iOS TestFlight pipeline (prebuild → sign → build-ipa → TestFlight)
-index.ts / App.tsx         entry + providers (StoreProvider, NavProvider, deep-link bridge)
-src/
-  core/                    PURE text pipeline (curation, vocab, snippets, corrections,
-                           voice commands, routing) — Android :core port, Jest-tested
-  store/                   app state (reducer + context), SQLite-encrypted persistence,
-                           App-Group mirror, and the core↔settings pipeline bridge
-  hooks/useDictation.ts    on-device speech recognition (live partial + mic level)
-  ui/kit.tsx               premium dark component kit (the shared visual contract)
-  navigation/              lightweight tabs + stack + the keyboard `record` deep-link
-  screens/                 Talk (recorder) · History · Settings · Snippets · Vocabulary
-                           · Corrections · KeyboardSetup · Paywall · About
-  theme/                   design tokens (brand gradient, surfaces)
-modules/vibeflow-appgroup/ local Expo native module: write into the App Group from JS
-targets/keyboard/          native Swift keyboard extension (@bacons/apple-targets)
+┌─ VibeFlow app (Expo/RN, JS — OTA-updatable) ────────────────────────────────┐
+│ UI: Talk (aurora hero, karaoke transcript) · History (voice stats, cards)   │
+│     Settings (icon chips, Appearance light/dark) · golden update card       │
+│ TextPipeline (src/core, pure TS — Android :core port)                       │
+│ Managed AI tier: Supabase auth (Apple native / Google web-OAuth) →          │
+│     polish edge fn (50 free/week, Pro unlimited) — services/{auth,polish}   │
+└──────────────┬──────────────────────────────────────────────────────────────┘
+               │ App Group (group.com.vibeflow.mobile) + Darwin notifications
+┌──────────────┴──────────────────────────────────────────────────────────────┐
+│ Native layer (Swift — changes need a Codemagic build)                       │
+│ • targets/keyboard   QWERTY: touch-down keys, gap-forgiving hit-testing,    │
+│   key-press balloons, UITextChecker suggest/autocorrect, SELF-LEARNING      │
+│   (personal lexicon + typed bigrams, persisted), flow-mic state machine     │
+│ • targets/widget     Live Activity / Dynamic Island (Flow Session pill)     │
+│ • modules/vibeflow-appgroup      App-Group KV bridge (CFPreferences reads!) │
+│ • modules/vibeflow-liveactivity  ActivityKit start/update/end               │
+│ • modules/vibeflow-flowsession   THE ENGINE: one foreground-activated       │
+│   AVAudioEngine input tap runs for the whole session; keyboard toggles      │
+│   attach/detach SFSpeechRecognizer to the live stream (zero background      │
+│   audio-session calls — the fix for OSStatus '!int'); Darwin IPC both ways  │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### The Flow Session (zero-hop dictation)
+1. First keyboard-mic tap → 2s hop: the app arms ONE audio session + input tap,
+   shows the Dynamic Island pill, and offers a center "Return to WhatsApp" button.
+2. Every next tap: keyboard → Darwin toggle → native recognition on the live
+   stream → text into the App Group → Darwin result ping → keyboard inserts at the
+   cursor. The mic key animates the real state (red pulse / orange / green ✓).
+3. Failsafes: 1.5s ack timeout auto-re-bootstraps a dead session (Live Activities
+   outlive force-quit — the "zombie pill"); errors surface in the strip + island;
+   the orange mic indicator stays on while a session runs (as with Wispr).
 
 ## Build & ship
 
-This repo is **source-complete**; native builds run on macOS (Codemagic), not here.
+- **Native builds: Codemagic** — `codemagic.yaml` signs all three bundle ids
+  (app / keyboard / widget) and publishes to TestFlight. Needs the `ios-creds`
+  variable group: ASC API key (**Admin** role — App Manager 403s on certificate
+  creation), Key ID, Issuer ID, and a **PKCS#1** `CERTIFICATE_PRIVATE_KEY`
+  (`ssh-keygen -t rsa -b 2048 -m PEM`). Builds are numbered `1.0.(BUILD+100)`.
+- **JS ships OTA**: `./scripts/deploy.sh update "msg"` (EAS Update, channel
+  `production`) — the golden in-app "Update ready" card prompts the restart.
+  **Bump `runtimeVersion` whenever the native surface changes** (currently `3`).
+- **Local Xcode builds impossible** on the 2018 MacBook (needs macOS 26 / Tahoe).
+- ⚠️ Local Expo modules **must have an `ios/*.podspec`** or they silently vanish
+  from the binary. Verify: `npx expo-modules-autolinking resolve -p apple`.
+
+## Backend (shared with vibeflow_android)
+
+Supabase project `emvstripgwywhcuxgjeg`:
+- `polish` edge fn — JWT auth → atomic quota reserve (50/week free, Pro unlimited)
+  → server-side prompt + OpenAI → refund on failure. 402 = limit, 409 = device
+  superseded (client signs out), 503 = maintenance kill-switch.
+- `claim-device` — one active device per platform per user.
+- Client: `src/services/{supabase,auth,polish}.ts`; contract tests in
+  `tests/polish.test.ts`. Anon key is publishable; the OpenAI key never leaves the
+  server.
+
+## Dev
 
 ```bash
-npm install
-npm test                 # runs the core pipeline tests (pure TS, any machine)
-# first-time native setup (on a Mac / Codemagic):
-npx eas init             # creates the EAS project → fill projectId in app.json + updates.url
-npx expo prebuild        # CNG: generates ios/ incl. the keyboard target + app-group module
-# ship:
-#   Codemagic `ios-testflight` workflow → TestFlight
-#   eas update --branch production   → OTA JS/asset updates (users restart to apply)
+npm install                        # .npmrc has legacy-peer-deps
+npx tsc --noEmit                   # typecheck (0 errors)
+npx jest                           # 43 tests: pipeline, curation, commands, polish contract
+./scripts/deploy.sh update "msg"   # OTA a JS-only change
 ```
-
-### Placeholders to fill once
-- `app.json` → `updates.url` and `extra.eas.projectId` (from `eas init`)
-- `eas.json` → `submit.testflight.ios.ascAppId` (from App Store Connect)
-- `assets/` → see `assets/README.md` (icon / splash images)
-
-## Status
-- ✅ Project on the LUCY stack — **stable Expo SDK 57, RN 0.86, React 19.2** (the
-  original SDK-56 pins never existed as a stable release; realigned on the `macbook` branch)
-- ✅ Core text pipeline ported to TS + verified (`npm test` → **36 passing**, incl. the
-  app↔core bridge: command detection, snippet/vocab/correction application, trailing-space)
-- ✅ Native keyboard target + App-Group bridge (source-complete)
-- ✅ State layer — persistent (SQLite/SQLCipher) settings/history/snippets/vocab/corrections,
-  mirrored into the App Group so the keyboard stays in sync
-- ✅ **Premium app UI, fully built** — live on-device recorder (animated mic + waveform),
-  History (search/pin/copy/delete), Settings (every pipeline knob + language), Snippets /
-  Vocabulary / Corrections CRUD, Keyboard setup, Paywall (RevenueCat, guarded), About
-- ✅ Whole app type-checks clean (`npm run typecheck` → 0 errors)
-- ⏳ Fill the deploy placeholders (EAS projectId, ASC app id, assets), wire `Purchases.configure`,
-  then native build on Codemagic → TestFlight
