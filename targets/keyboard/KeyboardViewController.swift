@@ -72,6 +72,16 @@ final class KeyboardViewController: UIInputViewController {
     private var lastSpaceTap: Date = .distantPast
     private var backspaceTimer: Timer?
 
+    /// Spell-check + strip rebuild are deferred off the keystroke path — doing them
+    /// synchronously per key made fast typing drop letters.
+    private var suggestTimer: Timer?
+    private func scheduleSuggestions() {
+        suggestTimer?.invalidate()
+        suggestTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: false) { [weak self] _ in
+            self?.updateSuggestions()
+        }
+    }
+
     // Autocorrect memory: words we've corrected once, and words the user re-typed
     // afterwards (so we stop "fighting" them — like the system keyboard).
     private var correctedOnce: Set<String> = []
@@ -126,7 +136,7 @@ final class KeyboardViewController: UIInputViewController {
         guard built else { return }
         autoInsertIfReturned()
         loadLearnedWords()
-        flowListening = false          // never carry a stale "recording" state
+        flowMicState = .idle           // never carry a stale "recording" state
         applyMicAppearance()
         updateSuggestions()
         updateShiftForContext()
@@ -233,21 +243,24 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
+    /// Idle strip: a single clear status line. (It used to list past dictations,
+    /// which read like broken word-suggestions — and its App-Group reads on the
+    /// typing path cost keystrokes.)
     private func showIdleSuggestions() {
         suggestionsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let recents = history().prefix(3).map { $0.text }
-        if recents.isEmpty {
-            let hint = suggestionButton(title: "🎙  Tap the mic to dictate", faint: true)
-            hint.addAction(UIAction { [weak self] _ in self?.micTapped() }, for: .touchUpInside)
-            suggestionsStack.addArrangedSubview(hint)
-            return
+        let title: String
+        switch flowMicState {
+        case .listening:  title = "● Listening — speak, tap 🎤 to finish"
+        case .processing: title = "✨ Working on your words…"
+        case .idle:
+            let status = groupString("kbd_flow_status") ?? ""
+            title = status.hasPrefix("error")
+                ? "⚠️ \(status)"
+                : "🎙  Tap the mic and just speak"
         }
-        for (_, text) in recents.enumerated() {
-            let oneLine = text.replacingOccurrences(of: "\n", with: " ")
-            let b = suggestionButton(title: String(oneLine.prefix(20)), faint: false)
-            b.addAction(UIAction { [weak self] _ in self?.insert(text) }, for: .touchUpInside)
-            suggestionsStack.addArrangedSubview(b)
-        }
+        let hint = suggestionButton(title: title, faint: flowMicState == .idle)
+        hint.addAction(UIAction { [weak self] _ in self?.micTapped() }, for: .touchUpInside)
+        suggestionsStack.addArrangedSubview(hint)
     }
 
     /// The run of letters immediately before the cursor (the word being typed).
@@ -485,7 +498,7 @@ final class KeyboardViewController: UIInputViewController {
         textDocumentProxy.insertText(shift == .off ? base : base.uppercased())
         if shift == .on { shift = .off }   // consume one-shot shift
         updateShiftForContext()
-        updateSuggestions()
+        scheduleSuggestions()
     }
 
     @objc private func shiftTapped() {
@@ -511,7 +524,7 @@ final class KeyboardViewController: UIInputViewController {
             lastSpaceTap = now
         }
         updateShiftForContext()
-        updateSuggestions()
+        scheduleSuggestions()
     }
 
     /// Conservative autocorrect: if the just-typed word is clearly misspelled and
@@ -551,13 +564,13 @@ final class KeyboardViewController: UIInputViewController {
         backspaceTimer?.invalidate()
         backspaceTimer = nil
         updateShiftForContext()
-        updateSuggestions()
+        scheduleSuggestions()
     }
 
     private func insert(_ text: String) {
         textDocumentProxy.insertText(text)
         updateShiftForContext()
-        updateSuggestions()
+        scheduleSuggestions()
     }
 
     private func updateShiftForContext() {
@@ -576,13 +589,29 @@ final class KeyboardViewController: UIInputViewController {
     private func micTapped() {
         // Flow Session alive (Dynamic Island showing)? Record right here — no hop.
         if flowSessionAlive {
-            flowListening.toggle()
+            let wasIdle = flowMicState == .idle
+            flowMicState = wasIdle ? .listening : .processing
             applyMicAppearance()
             CFNotificationCenterPostNotification(
                 CFNotificationCenterGetDarwinNotifyCenter(),
                 CFNotificationName(flowToggleName as CFString),
                 nil, nil, true
             )
+            // Failsafe: the island can outlive a force-quit app (zombie pill). If the
+            // app doesn't ack a record-start quickly, it's dead — hop to restart it.
+            if wasIdle {
+                toggleAckTimer?.invalidate()
+                toggleAckTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
+                    guard let self, self.flowMicState == .listening else { return }
+                    if self.groupString("kbd_flow_status") != "listening" {
+                        self.flowMicState = .idle
+                        self.applyMicAppearance()
+                        self.armed = true
+                        self.armedSnapshot = self.latest()
+                        self.openApp()
+                    }
+                }
+            }
             return
         }
         // Otherwise: the one-time hop that starts the session.
@@ -591,11 +620,52 @@ final class KeyboardViewController: UIInputViewController {
         openApp()
     }
 
-    /// Mic key turns red while a flow recording is in progress.
+    /// Mic key mirrors the real flow state: pulsing red while listening, orange
+    /// while the app processes, brand purple when idle (green flash on insert).
     private func applyMicAppearance() {
         guard let mic = topMicButton else { return }
-        mic.baseColor = flowListening ? .systemRed : brand
-        mic.pressedColor = (flowListening ? UIColor.systemRed : brand).withAlphaComponent(0.75)
+        mic.layer.removeAnimation(forKey: "flowPulse")
+        switch flowMicState {
+        case .idle:
+            mic.baseColor = brand
+            mic.pressedColor = brand.withAlphaComponent(0.75)
+            mic.setImage(UIImage(systemName: "mic.fill"), for: .normal)
+        case .listening:
+            mic.baseColor = .systemRed
+            mic.pressedColor = UIColor.systemRed.withAlphaComponent(0.75)
+            mic.setImage(UIImage(systemName: "waveform"), for: .normal)
+            let pulse = CABasicAnimation(keyPath: "opacity")
+            pulse.fromValue = 1.0
+            pulse.toValue = 0.5
+            pulse.duration = 0.55
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            mic.layer.add(pulse, forKey: "flowPulse")
+        case .processing:
+            mic.baseColor = .systemOrange
+            mic.pressedColor = UIColor.systemOrange.withAlphaComponent(0.75)
+            mic.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+            let pulse = CABasicAnimation(keyPath: "transform.scale")
+            pulse.fromValue = 1.0
+            pulse.toValue = 0.92
+            pulse.duration = 0.4
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            mic.layer.add(pulse, forKey: "flowPulse")
+        }
+    }
+
+    /// Brief green confirmation when dictated text lands, then back to idle.
+    private func flashMicSuccess() {
+        guard let mic = topMicButton else { return }
+        mic.layer.removeAnimation(forKey: "flowPulse")
+        mic.baseColor = .systemGreen
+        mic.setImage(UIImage(systemName: "checkmark"), for: .normal)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+            guard let self else { return }
+            self.flowMicState = .idle
+            self.applyMicAppearance()
+        }
     }
 
     /// Auto-type the dictation the app just saved. Keyed off App-Group timestamps —
@@ -624,7 +694,8 @@ final class KeyboardViewController: UIInputViewController {
         textDocumentProxy.insertText(text)
     }
 
-    /// Darwin "result ready" → insert the fresh dictation right where the user is.
+    /// Darwin observers: "result ready" → insert the dictation; "status" → animate
+    /// the mic with the app's real state.
     private func registerFlowResultObserver() {
         let center = CFNotificationCenterGetDarwinNotifyCenter()
         let observer = Unmanaged.passUnretained(self).toOpaque()
@@ -633,20 +704,41 @@ final class KeyboardViewController: UIInputViewController {
             let kb = Unmanaged<KeyboardViewController>.fromOpaque(observer).takeUnretainedValue()
             DispatchQueue.main.async { kb.insertFlowResult() }
         }, flowResultName as CFString, nil, .deliverImmediately)
+        CFNotificationCenterAddObserver(center, observer, { _, observer, _, _, _ in
+            guard let observer = observer else { return }
+            let kb = Unmanaged<KeyboardViewController>.fromOpaque(observer).takeUnretainedValue()
+            DispatchQueue.main.async { kb.flowStatusChanged() }
+        }, flowStatusName as CFString, nil, .deliverImmediately)
     }
 
     private func insertFlowResult() {
+        toggleAckTimer?.invalidate()
         let text = latest()
         guard !text.isEmpty, text != lastFlowInserted else { return }
         lastFlowInserted = text
-        flowListening = false
-        applyMicAppearance()
         // Mark consumed so a later viewWillAppear doesn't re-insert the same text.
         if let ts = groupString("latest_dictation_ts") {
             store?.set(ts, forKey: "kbd_inserted_ts")
         }
         smartInsert(text)
+        flashMicSuccess()
         updateSuggestions()
+    }
+
+    /// App pinged that kbd_flow_status changed — mirror the real state on the mic.
+    private func flowStatusChanged() {
+        toggleAckTimer?.invalidate()
+        let status = groupString("kbd_flow_status") ?? ""
+        switch status {
+        case "listening":  flowMicState = .listening
+        case "processing": flowMicState = .processing
+        case "inserted":   return          // insertFlowResult handles the green flash
+        default:           flowMicState = .idle   // includes "error: …"
+        }
+        applyMicAppearance()
+        if status.hasPrefix("error"), currentWord().isEmpty {
+            showIdleSuggestions()          // surface the error text in the strip
+        }
     }
 
     /// Bundle id of the app hosting the keyboard (WhatsApp etc.), so VibeFlow can
