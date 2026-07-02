@@ -11,7 +11,7 @@ const native = requireOptionalNativeModule<{
   reassert(): void;
   notifyResultReady(): void;
   notifyStatus?(): void;
-  addListener(event: 'recordToggle', listener: () => void): { remove(): void };
+  addListener(event: string, listener: (payload?: any) => void): { remove(): void };
 }>('VibeflowFlowSession');
 
 /** Whether the native engine module is present in this binary at all. */
@@ -63,10 +63,34 @@ export function notifyFlowStatus(): void {
   } catch {}
 }
 
-/** Fired when the keyboard's mic is tapped during an active session. */
+/** Fired when the keyboard's mic is tapped during an active session. (Recognition
+ * itself runs natively in the module; JS only reacts for UI/history.) */
 export function addRecordToggleListener(listener: () => void): { remove(): void } | null {
   try {
     return native?.addListener('recordToggle', listener) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fired with the final text of each native flow utterance (already inserted by
+ * the keyboard) — for history/Live-Activity bookkeeping. */
+export function addUtteranceFinalListener(
+  listener: (e: { text: string }) => void,
+): { remove(): void } | null {
+  try {
+    return native?.addListener('utteranceFinal', listener) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fired whenever the native engine's status changes (listening/processing/…). */
+export function addFlowStatusListener(
+  listener: (e: { status: string }) => void,
+): { remove(): void } | null {
+  try {
+    return native?.addListener('flowStatus', listener) ?? null;
   } catch {
     return null;
   }

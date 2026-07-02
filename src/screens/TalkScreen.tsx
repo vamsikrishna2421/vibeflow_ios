@@ -26,10 +26,9 @@ import { hostAppFor } from '@/store/hostApps';
 import { Colors, Radius, micGradient } from '@/theme/colors';
 import { Badge, GhostButton, haptic } from '@/ui/kit';
 import {
-  addRecordToggleListener,
+  addFlowStatusListener,
+  addUtteranceFinalListener,
   flowSessionModuleAvailable,
-  notifyFlowStatus,
-  notifyResultReady,
   reassertFlowSession,
   startFlowSession,
   stopFlowSession,
@@ -96,19 +95,6 @@ export function TalkScreen() {
       if (settings.haptics) haptic.success();
       // Flow-session utterance (keyboard mic, app in background): hand ONLY this
       // utterance to the keyboard and ping it to insert immediately.
-      if (flowUtteranceRef.current) {
-        flowUtteranceRef.current = false;
-        const text = outcome.text.trim();
-        // Write synchronously BEFORE the Darwin ping — the store's App-Group mirror
-        // runs in a later effect, and the keyboard reads the instant it's pinged.
-        setItem('latest_dictation', text);
-        setItem('latest_dictation_ts', String(Date.now()));
-        setItem('kbd_flow_status', 'inserted');
-        addDictation(text);
-        notifyResultReady();
-        notifyFlowStatus();
-        return;
-      }
       // Keyboard-initiated visit: EVERY utterance (re)saves the accumulated draft,
       // stamped so the keyboard auto-types it on return — even if its process was
       // killed during the hop (the old in-memory handshake didn't survive that).
@@ -165,37 +151,27 @@ export function TalkScreen() {
   const dictationRef = useRef(dictation);
   dictationRef.current = dictation;
 
-  // Keyboard mic tapped during an active Flow Session → start/stop an utterance
-  // while we run in the background.
+  // Flow utterances are recorded/recognized NATIVELY in the flowsession module
+  // (the always-on input stream — reconfiguring audio from the background threw
+  // OSStatus '!int'). JS just mirrors status into the Live Activity and books the
+  // finished text into history (the keyboard has already inserted it).
+  const addDictationRef = useRef(addDictation);
+  addDictationRef.current = addDictation;
   useEffect(() => {
-    const sub = addRecordToggleListener(() => {
-      const d = dictationRef.current;
-      if (d.state === 'listening') {
-        updateLiveActivity('Finishing…', '');
-        setItem('kbd_flow_status', 'processing');
-        notifyFlowStatus();
-        d.stop();
-      } else {
-        flowUtteranceRef.current = true;
-        // Visible proof the toggle reached us — island flips before the mic warms.
-        updateLiveActivity('Starting mic…', '');
-        setItem('kbd_flow_status', 'listening');
-        notifyFlowStatus();
-        d.start();
-      }
+    const finalSub = addUtteranceFinalListener(({ text }) => {
+      addDictationRef.current(text);
+      updateLiveActivity('Inserted ✓', text);
     });
-    return () => sub?.remove();
+    const statusSub = addFlowStatusListener(({ status }) => {
+      if (status === 'listening') updateLiveActivity('Listening…', '');
+      else if (status === 'processing') updateLiveActivity('Working on your words…', '');
+      else if (status.startsWith('error')) updateLiveActivity('Mic error — tap the keyboard mic to retry', status);
+    });
+    return () => {
+      finalSub?.remove();
+      statusSub?.remove();
+    };
   }, []);
-
-  // Surface background dictation failures where the user can see them (island +
-  // App Group) — a silent error here looked like "I spoke and nothing happened".
-  useEffect(() => {
-    if (dictation.error && sessionActiveRef.current) {
-      updateLiveActivity('Mic error — tap keyboard mic to retry', dictation.error);
-      setItem('kbd_flow_status', `error: ${dictation.error}`);
-      notifyFlowStatus();
-    }
-  }, [dictation.error]);
 
   // After each utterance ends, re-assert the keep-alive so iOS doesn't suspend us
   // between dictations (the speech lib can reconfigure the audio session on stop).
