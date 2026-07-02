@@ -141,6 +141,11 @@ final class KeyboardViewController: UIInputViewController {
     private var topMicButton: KeyButton?
     private var built = false
 
+    // Key-press preview balloon (the character pop-up everyone expects).
+    private let keyPreview = UIView()
+    private let keyPreviewLabel = UILabel()
+    private var keyPreviewHideTimer: Timer?
+
     // MARK: Appearance-aware colors
     private var isDark: Bool { textDocumentProxy.keyboardAppearance == .dark || traitCollection.userInterfaceStyle == .dark }
     private var kbBackground: UIColor { isDark ? UIColor(white: 0.09, alpha: 1) : UIColor(red: 0.82, green: 0.84, blue: 0.86, alpha: 1) }
@@ -247,6 +252,20 @@ final class KeyboardViewController: UIInputViewController {
             root.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             topBar.heightAnchor.constraint(equalToConstant: 44),
         ])
+
+        // Key-press preview balloon.
+        keyPreview.layer.cornerRadius = 10
+        keyPreview.layer.shadowColor = UIColor.black.cgColor
+        keyPreview.layer.shadowOpacity = 0.3
+        keyPreview.layer.shadowRadius = 6
+        keyPreview.layer.shadowOffset = CGSize(width: 0, height: 2)
+        keyPreview.isHidden = true
+        keyPreview.isUserInteractionEnabled = false
+        keyPreviewLabel.textAlignment = .center
+        keyPreviewLabel.font = .systemFont(ofSize: 32, weight: .medium)
+        keyPreview.addSubview(keyPreviewLabel)
+        view.addSubview(keyPreview)
+
         updateSuggestions()
     }
 
@@ -407,7 +426,9 @@ final class KeyboardViewController: UIInputViewController {
         case .emojis:
             rowsStack.addArrangedSubview(charRow(["😀","😂","🥹","❤️","👍","🙏","😊","🎉"], letters: false))
             rowsStack.addArrangedSubview(charRow(["😍","🥰","😭","😅","🤔","👌","🙌","🔥"], letters: false))
-            rowsStack.addArrangedSubview(charRow(["✨","😎","🤝","👏","💯","🥳","😢","💪"], letters: false))
+            let lastEmojiRow = charRow(["✨","😎","🤝","👏","💯","🥳","😢"], letters: false)
+            lastEmojiRow.addArrangedSubview(backspaceKey())   // emoji page needs delete too
+            rowsStack.addArrangedSubview(lastEmojiRow)
         }
         rowsStack.addArrangedSubview(functionRow())
         applyShiftAppearance()
@@ -540,11 +561,48 @@ final class KeyboardViewController: UIInputViewController {
         if isLetter {
             b.accessibilityIdentifier = base       // lowercase base for re-titling
             letterButtons.append(b)
-            b.addAction(UIAction { [weak self] _ in self?.charTapped(base) }, for: .touchDown)
+            b.addAction(UIAction { [weak self, weak b] _ in
+                guard let self else { return }
+                if let b { self.showKeyPreview(over: b, text: self.shift == .off ? base : base.uppercased()) }
+                self.charTapped(base)
+            }, for: .touchDown)
         } else {
-            b.addAction(UIAction { [weak self] _ in self?.insert(base) }, for: .touchDown)
+            b.addAction(UIAction { [weak self, weak b] _ in
+                guard let self else { return }
+                if let b { self.showKeyPreview(over: b, text: base) }
+                self.insert(base)
+            }, for: .touchDown)
         }
+        b.addTarget(self, action: #selector(hideKeyPreview), for: [.touchUpInside, .touchUpOutside, .touchCancel])
         return b
+    }
+
+    /// Show the character balloon above a pressed key (auto-hides as a fallback).
+    private func showKeyPreview(over key: KeyButton, text: String) {
+        let keyFrame = key.convert(key.bounds, to: view)
+        let width = max(keyFrame.width + 20, 50)
+        let height: CGFloat = 56
+        var x = keyFrame.midX - width / 2
+        x = min(max(2, x), view.bounds.width - width - 2)
+        keyPreview.frame = CGRect(x: x, y: keyFrame.minY - height + 10, width: width, height: height)
+        keyPreview.backgroundColor = keyColor
+        keyPreviewLabel.frame = keyPreview.bounds
+        keyPreviewLabel.textColor = inkColor
+        keyPreviewLabel.text = text
+        keyPreview.isHidden = false
+        view.bringSubviewToFront(keyPreview)
+        keyPreviewHideTimer?.invalidate()
+        keyPreviewHideTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [weak self] _ in
+            self?.keyPreview.isHidden = true
+        }
+    }
+
+    @objc private func hideKeyPreview() {
+        // Tiny linger so the balloon is perceivable on quick taps.
+        keyPreviewHideTimer?.invalidate()
+        keyPreviewHideTimer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: false) { [weak self] _ in
+            self?.keyPreview.isHidden = true
+        }
     }
 
     private func specialKey(title: String? = nil, systemImage: String? = nil) -> KeyButton {
