@@ -133,6 +133,69 @@ final class KeyboardViewController: UIInputViewController {
     private static let sentenceStarters = ["I", "The", "We"]
     private static let commonNext = ["the", "to", "and"]
 
+    // MARK: Self-learning (all on-device, persisted in the App Group)
+    // The keyboard learns from live typing: every kept word is counted (2+ uses →
+    // personal lexicon: never autocorrected, offered as completion), word pairs
+    // feed next-word predictions, and suggestion taps reinforce.
+    private var learnedCounts: [String: Int] = [:]
+    private var typedBigrams: [String: [String: Int]] = [:]
+    private var lastCommittedWord: String?
+    private var learnEvents = 0
+
+    private func loadLearningState() {
+        if let json = groupString("kbd_learned_counts"), let data = json.data(using: .utf8),
+           let map = try? JSONDecoder().decode([String: Int].self, from: data) {
+            learnedCounts = map
+            for (w, c) in map where c >= 2 { UITextChecker.learnWord(w) }
+        }
+        if let json = groupString("kbd_typed_bigrams"), let data = json.data(using: .utf8),
+           let map = try? JSONDecoder().decode([String: [String: Int]].self, from: data) {
+            typedBigrams = map
+        }
+    }
+
+    private func persistLearningState() {
+        // Prune so the store stays tiny and hot: top words / top pair-heads only.
+        if learnedCounts.count > 2000 {
+            let keep = learnedCounts.sorted { $0.value > $1.value }.prefix(1600)
+            learnedCounts = Dictionary(uniqueKeysWithValues: Array(keep))
+        }
+        if typedBigrams.count > 1500 {
+            let keep = typedBigrams.sorted { $0.value.values.reduce(0, +) > $1.value.values.reduce(0, +) }.prefix(1200)
+            typedBigrams = Dictionary(uniqueKeysWithValues: Array(keep))
+        }
+        if let data = try? JSONEncoder().encode(learnedCounts), let json = String(data: data, encoding: .utf8) {
+            store?.set(json, forKey: "kbd_learned_counts")
+        }
+        if let data = try? JSONEncoder().encode(typedBigrams), let json = String(data: data, encoding: .utf8) {
+            store?.set(json, forKey: "kbd_typed_bigrams")
+        }
+    }
+
+    /// Called at every word boundary with the word as the user LEFT it (post-
+    /// autocorrect, post-revert) — the ground truth of what they wanted.
+    private func learnCommittedWord(_ raw: String) {
+        let w = raw.lowercased()
+        guard w.count >= 2, w.count <= 24, w.allSatisfy({ $0.isLetter || $0 == "'" }) else {
+            lastCommittedWord = nil
+            return
+        }
+        learnedCounts[w, default: 0] += 1
+        if learnedCounts[w] == 2 { UITextChecker.learnWord(w) }  // reinforced → lexicon
+        if let prev = lastCommittedWord {
+            typedBigrams[prev, default: [:]][w, default: 0] += 1
+        }
+        lastCommittedWord = w
+        learnEvents += 1
+        if learnEvents % 12 == 0 { persistLearningState() }
+    }
+
+    /// Top personally-typed continuations for a word (merged ahead of dictation bigrams).
+    private func personalNext(after word: String) -> [String] {
+        guard let m = typedBigrams[word] else { return [] }
+        return m.sorted { $0.value > $1.value }.prefix(3).map { $0.key }
+    }
+
     // MARK: Views / tracking
     private var suggestionsStack: UIStackView!
     private var rowsStack: UIStackView!
@@ -167,7 +230,13 @@ final class KeyboardViewController: UIInputViewController {
         rebuildKeys()
         built = true
         loadLearnedWords()
+        loadLearningState()
         registerFlowResultObserver()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        persistLearningState()
     }
 
     deinit {
@@ -288,8 +357,13 @@ final class KeyboardViewController: UIInputViewController {
             picks = textChecker.completions(forPartialWordRange: full, in: word, language: checkerLang) ?? []
         }
 
-        // Romanized-Telugu/Hindi + user words that start with what's typed come first.
-        let learnedMatches = learnedWords.filter { $0.lowercased().hasPrefix(lw) && $0.lowercased() != lw }
+        // Personal words (typed 2+ times) + app-provided words that match come first.
+        let personalMatches = learnedCounts
+            .filter { $0.value >= 2 && $0.key.hasPrefix(lw) && $0.key != lw }
+            .sorted { $0.value > $1.value }
+            .prefix(2)
+            .map { $0.key }
+        let learnedMatches = personalMatches + learnedWords.filter { $0.lowercased().hasPrefix(lw) && $0.lowercased() != lw }
         var seen = Set<String>()
         let combined = (learnedMatches + picks).filter { $0.lowercased() != lw && seen.insert($0.lowercased()).inserted }
         if combined.isEmpty { showIdleSuggestions(); return }
@@ -349,7 +423,10 @@ final class KeyboardViewController: UIInputViewController {
             let lastWord = before
                 .split(whereSeparator: { !$0.isLetter && $0 != "'" })
                 .last.map(String.init)?.lowercased() ?? ""
-            preds = bigrams[lastWord] ?? []
+            preds = personalNext(after: lastWord)
+            for w in bigrams[lastWord] ?? [] where preds.count < 3 && !preds.contains(w) {
+                preds.append(w)
+            }
             for w in Self.commonNext where preds.count < 3 && !preds.contains(w) {
                 preds.append(w)
             }
@@ -360,7 +437,10 @@ final class KeyboardViewController: UIInputViewController {
         suggestionsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         for p in preds {
             let b = suggestionButton(title: p, faint: false)
-            b.addAction(UIAction { [weak self] _ in self?.insert(p + " ") }, for: .touchUpInside)
+            b.addAction(UIAction { [weak self] _ in
+                self?.learnCommittedWord(p)
+                self?.insert(p + " ")
+            }, for: .touchUpInside)
             suggestionsStack.addArrangedSubview(b)
         }
     }
@@ -382,6 +462,7 @@ final class KeyboardViewController: UIInputViewController {
         guard !word.isEmpty else { return }
         for _ in 0..<(word as NSString).length { textDocumentProxy.deleteBackward() }
         textDocumentProxy.insertText(replacement + " ")
+        learnCommittedWord(replacement)
         updateShiftForContext()
         updateSuggestions()
     }
@@ -677,6 +758,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func spaceTapped() {
         autocorrectCurrentWord()
+        learnCommittedWord(currentWord())
         let now = Date()
         if now.timeIntervalSince(lastSpaceTap) < 0.3,
            let before = textDocumentProxy.documentContextBeforeInput,
@@ -700,6 +782,7 @@ final class KeyboardViewController: UIInputViewController {
         guard word.count >= 3 else { return }
         let key = word.lowercased()
         if refusedCorrections.contains(key) { return }   // user insists on this spelling
+        if (learnedCounts[key] ?? 0) >= 2 { return }     // personal lexicon — hands off
         let ns = word as NSString
         let full = NSRange(location: 0, length: ns.length)
         let mis = textChecker.rangeOfMisspelledWord(in: word, range: full, startingAt: 0, wrap: false, language: checkerLang)
@@ -734,6 +817,11 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func insert(_ text: String) {
+        // A single non-letter key (punctuation, return) ends the word in progress —
+        // learn it exactly as the user left it.
+        if page == .letters, text.count == 1, let ch = text.first, !ch.isLetter, ch != "'" {
+            learnCommittedWord(currentWord())
+        }
         textDocumentProxy.insertText(text)
         updateShiftForContext()
         scheduleSuggestions()
