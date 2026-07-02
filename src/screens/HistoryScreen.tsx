@@ -39,6 +39,80 @@ function relativeTime(createdAt: number): string {
   });
 }
 
+/**
+ * Your voice, quantified: lifetime words, this week, minutes saved vs typing
+ * (speaking ≈150 wpm vs typing ≈40 wpm), and a 7-day activity sparkline.
+ */
+function StatsCard({ history }: { history: Dictation[] }) {
+  const stats = useMemo(() => {
+    const wordsOf = (t: string) => t.split(/\s+/).filter(Boolean).length;
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    let total = 0;
+    let week = 0;
+    const daily = Array.from({ length: 7 }, () => 0); // index 6 = today
+    for (const d of history) {
+      const w = wordsOf(d.text);
+      total += w;
+      const age = now - (d.createdAt ?? now);
+      if (age < 7 * dayMs) {
+        week += w;
+        const idx = 6 - Math.min(6, Math.floor(age / dayMs));
+        daily[idx] += w;
+      }
+    }
+    // Speaking ~150wpm vs typing ~40wpm → each spoken word saves ~1.1s.
+    const minutesSaved = Math.round(total * (1 / 40 - 1 / 150));
+    return { total, week, minutesSaved, daily };
+  }, [history]);
+
+  const max = Math.max(1, ...stats.daily);
+  return (
+    <Card style={statStyles.card}>
+      <View style={statStyles.row}>
+        <View style={statStyles.cell}>
+          <Text style={statStyles.value}>{stats.total.toLocaleString()}</Text>
+          <Text style={statStyles.label}>words spoken</Text>
+        </View>
+        <View style={statStyles.cell}>
+          <Text style={statStyles.value}>{stats.week.toLocaleString()}</Text>
+          <Text style={statStyles.label}>this week</Text>
+        </View>
+        <View style={statStyles.cell}>
+          <Text style={statStyles.value}>{stats.minutesSaved}m</Text>
+          <Text style={statStyles.label}>saved vs typing</Text>
+        </View>
+      </View>
+      <View style={statStyles.spark}>
+        {stats.daily.map((v, i) => (
+          <View key={i} style={statStyles.sparkSlot}>
+            <View
+              style={[
+                statStyles.sparkBar,
+                {
+                  height: 6 + (v / max) * 26,
+                  backgroundColor: i === 6 ? Colors.brand : 'rgba(124,92,255,0.4)',
+                },
+              ]}
+            />
+          </View>
+        ))}
+      </View>
+    </Card>
+  );
+}
+
+const statStyles = StyleSheet.create({
+  card: { marginBottom: 14, gap: 12 },
+  row: { flexDirection: 'row' },
+  cell: { flex: 1, alignItems: 'center', gap: 2 },
+  value: { color: Colors.ink, fontSize: 20, fontWeight: '800' },
+  label: { color: Colors.inkFaint, fontSize: 11.5 },
+  spark: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, height: 34, paddingHorizontal: 6 },
+  sparkSlot: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
+  sparkBar: { width: '70%', borderRadius: 3 },
+});
+
 export function HistoryScreen() {
   const { history, togglePin, deleteDictation, clearHistory } = useStore();
   const [query, setQuery] = useState('');
@@ -127,6 +201,8 @@ export function HistoryScreen() {
           ) : undefined
         }
       >
+        {history.length > 0 ? <StatsCard history={history} /> : null}
+
         {showSearch ? (
           <View style={styles.search}>
             <TextField

@@ -55,6 +55,7 @@ export function TalkScreen() {
 
   const [draft, setDraft] = useState('');
   const [toast, setToast] = useState<string | null>(null);
+  const [burstNonce, setBurstNonce] = useState(0);
   // Last flow status from the App Group — shown in the debug stamp so a failed
   // background utterance is visible the moment the app is reopened.
   const [lastFlowStatus, setLastFlowStatus] = useState<string | null>(null);
@@ -97,6 +98,7 @@ export function TalkScreen() {
       if (!outcome.text) return;
       const next = draftRef.current ? draftRef.current + outcome.text : outcome.text;
       setDraft(next);
+      setBurstNonce((n) => n + 1);
       if (settings.haptics) haptic.success();
       // Flow-session utterance (keyboard mic, app in background): hand ONLY this
       // utterance to the keyboard and ping it to insert immediately.
@@ -408,15 +410,15 @@ export function TalkScreen() {
         {dictation.error ? (
           <Text style={styles.error}>{dictation.error}</Text>
         ) : listening && live ? (
-          <Text style={styles.live} numberOfLines={4}>
-            {live}
-          </Text>
+          <KaraokeTranscript text={live} />
         ) : (
           <Text style={styles.hint}>
             Speak naturally. Say “new line”, “comma”, or “question mark”. Say
             “scratch that” to undo.
           </Text>
         )}
+
+        <SavedBurst nonce={burstNonce} />
       </View>
       )}
 
@@ -463,6 +465,69 @@ export function TalkScreen() {
         {lastFlowStatus ? ` · flow: ${lastFlowStatus}` : ''}
         {recordHost ? ` · from: ${recordHost}` : ''}
       </Text>
+    </View>
+  );
+}
+
+// --- karaoke transcript (words fade in as you speak) ---------------------------
+
+function KaraokeTranscript({ text }: { text: string }) {
+  const all = text.split(/\s+/).filter(Boolean);
+  const window = all.slice(-20);
+  const start = all.length - window.length;
+  return (
+    <View style={styles.karaokeWrap}>
+      {window.map((w, i) => (
+        <FadeInWord
+          key={`${start + i}`}
+          word={w}
+          hot={i >= window.length - 3}
+        />
+      ))}
+    </View>
+  );
+}
+
+function FadeInWord({ word, hot }: { word: string; hot: boolean }) {
+  const a = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(a, { toValue: 1, duration: 240, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
+  }, [a]);
+  return (
+    <Animated.Text
+      style={[
+        styles.kWord,
+        hot && styles.kWordHot,
+        { opacity: a, transform: [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] },
+      ]}
+    >
+      {word}{' '}
+    </Animated.Text>
+  );
+}
+
+// --- saved-moment burst (ring + check pop when a dictation lands) --------------
+
+function SavedBurst({ nonce }: { nonce: number }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (nonce === 0) return;
+    anim.setValue(0);
+    Animated.timing(anim, { toValue: 1, duration: 850, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [nonce, anim]);
+  if (nonce === 0) return null;
+
+  const ringScale = anim.interpolate({ inputRange: [0, 1], outputRange: [0.4, 2.4] });
+  const ringOpacity = anim.interpolate({ inputRange: [0, 0.15, 1], outputRange: [0, 0.5, 0] });
+  const checkScale = anim.interpolate({ inputRange: [0, 0.25, 0.45, 1], outputRange: [0.3, 1.15, 1, 1] });
+  const checkOpacity = anim.interpolate({ inputRange: [0, 0.15, 0.7, 1], outputRange: [0, 1, 1, 0] });
+
+  return (
+    <View pointerEvents="none" style={styles.burstWrap}>
+      <Animated.View style={[styles.burstRing, { transform: [{ scale: ringScale }], opacity: ringOpacity }]} />
+      <Animated.View style={{ transform: [{ scale: checkScale }], opacity: checkOpacity }}>
+        <Ionicons name="checkmark-circle" size={54} color={Colors.success} />
+      </Animated.View>
     </View>
   );
 }
@@ -738,6 +803,21 @@ const styles = StyleSheet.create({
   auroraBlob: { position: 'absolute', width: 420, height: 420 },
   auroraFill: { flex: 1, borderRadius: 210 },
   quickReturnRow: { flexDirection: 'row', gap: 10, marginTop: 12, alignSelf: 'stretch' },
+
+  karaokeWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    marginTop: 24,
+    paddingHorizontal: 10,
+    maxHeight: 130,
+    overflow: 'hidden',
+  },
+  kWord: { color: 'rgba(255,255,255,0.55)', fontSize: 22, lineHeight: 32, fontWeight: '600' },
+  kWordHot: { color: Colors.ink, textShadowColor: 'rgba(124,92,255,0.8)', textShadowRadius: 12, textShadowOffset: { width: 0, height: 0 } },
+
+  burstWrap: { position: 'absolute', alignSelf: 'center', top: '38%', alignItems: 'center', justifyContent: 'center' },
+  burstRing: { position: 'absolute', width: 90, height: 90, borderRadius: 45, borderWidth: 3, borderColor: Colors.success },
   live: { color: Colors.ink, fontSize: 18, lineHeight: 25, textAlign: 'center', marginTop: 26, paddingHorizontal: 8 },
   hint: { color: Colors.inkFaint, fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: 26, paddingHorizontal: 16 },
   error: { color: Colors.accentRed, fontSize: 14, textAlign: 'center', marginTop: 26, paddingHorizontal: 16 },
