@@ -247,6 +247,7 @@ export function IconButton({
 
 export function ToggleRow({
   icon,
+  tint,
   label,
   subtitle,
   value,
@@ -254,6 +255,7 @@ export function ToggleRow({
   disabled,
 }: {
   icon?: IconName;
+  tint?: string;
   label: string;
   subtitle?: string;
   value: boolean;
@@ -262,7 +264,7 @@ export function ToggleRow({
 }) {
   return (
     <View style={[styles.row, disabled && { opacity: 0.5 }]}>
-      {icon ? <RowIcon icon={icon} /> : null}
+      {icon ? <RowIcon icon={icon} tint={tint} /> : null}
       <View style={styles.rowText}>
         <Text style={Type.label}>{label}</Text>
         {subtitle ? <Text style={[Type.bodySoft, { marginTop: 2 }]}>{subtitle}</Text> : null}
@@ -284,6 +286,7 @@ export function ToggleRow({
 
 export function NavRow({
   icon,
+  tint,
   label,
   subtitle,
   value,
@@ -291,6 +294,7 @@ export function NavRow({
   danger,
 }: {
   icon?: IconName;
+  tint?: string;
   label: string;
   subtitle?: string;
   value?: string;
@@ -306,7 +310,7 @@ export function NavRow({
       }}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
-      {icon ? <RowIcon icon={icon} tone={danger ? 'danger' : 'default'} /> : null}
+      {icon ? <RowIcon icon={icon} tone={danger ? 'danger' : 'default'} tint={tint} /> : null}
       <View style={styles.rowText}>
         <Text style={[Type.label, { color }]}>{label}</Text>
         {subtitle ? <Text style={[Type.bodySoft, { marginTop: 2 }]}>{subtitle}</Text> : null}
@@ -317,15 +321,19 @@ export function NavRow({
   );
 }
 
-function RowIcon({ icon, tone = 'default' }: { icon: IconName; tone?: 'default' | 'danger' }) {
+function RowIcon({
+  icon,
+  tone = 'default',
+  tint,
+}: {
+  icon: IconName;
+  tone?: 'default' | 'danger';
+  tint?: string;
+}) {
+  const color = tint ?? (tone === 'danger' ? Colors.accentRed : Colors.brand);
   return (
-    <View
-      style={[
-        styles.rowIcon,
-        { backgroundColor: tone === 'danger' ? 'rgba(229,71,73,0.15)' : 'rgba(124,92,255,0.15)' },
-      ]}
-    >
-      <Ionicons name={icon} size={18} color={tone === 'danger' ? Colors.accentRed : Colors.brand} />
+    <View style={[styles.rowIcon, { backgroundColor: `${color}26` }]}>
+      <Ionicons name={icon} size={18} color={color} />
     </View>
   );
 }

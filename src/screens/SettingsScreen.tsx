@@ -7,6 +7,7 @@
  * picker is an in-place bottom sheet; Smart formatting is gated behind Pro.
  */
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import React, { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -55,23 +56,27 @@ export function SettingsScreen() {
     <Screen title="Settings" subtitle="Tune how VibeFlow listens and writes.">
       {/* Pro upsell — only when the user hasn't unlocked it yet. */}
       {!premium ? (
-        <Card style={styles.banner} onPress={() => push('paywall')}>
-          <View style={styles.bannerRow}>
-            <View style={styles.bannerIcon}>
-              <Ionicons name="sparkles" size={22} color={Colors.brand} />
-            </View>
-            <View style={styles.bannerText}>
-              <View style={styles.bannerTitleRow}>
-                <Text style={Type.label}>Unlock VibeFlow Pro</Text>
-                <Badge label="PRO" tone="amber" />
+        <Pressable onPress={() => push('paywall')} style={({ pressed }) => [pressed && { opacity: 0.9 }]}>
+          <LinearGradient
+            colors={['#F7D774', '#D4A017', '#FFE9A8']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.goldEdge}
+          >
+            <View style={styles.goldCard}>
+              <View style={styles.bannerRow}>
+                <View style={styles.goldIcon}>
+                  <Ionicons name="sparkles" size={20} color="#3A2A00" />
+                </View>
+                <View style={styles.bannerText}>
+                  <Text style={styles.goldTitle}>Unlock VibeFlow Pro</Text>
+                  <Text style={styles.goldSub}>Smart AI formatting, unlimited snippets &amp; more.</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#E8C96A" />
               </View>
-              <Text style={[Type.bodySoft, { marginTop: 2 }]}>
-                Smart AI formatting, unlimited snippets &amp; more.
-              </Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={Colors.inkFaint} />
-          </View>
-        </Card>
+          </LinearGradient>
+        </Pressable>
       ) : null}
 
       {/* Recognition ---------------------------------------------------------- */}
@@ -79,6 +84,7 @@ export function SettingsScreen() {
       <Card padded={false} style={styles.group}>
         <ToggleRow
           icon="shield-checkmark-outline"
+          tint="#39D98A"
           label="On-device only"
           subtitle="Your voice never leaves this phone"
           value={settings.onDeviceOnly}
@@ -87,6 +93,7 @@ export function SettingsScreen() {
         <Divider />
         <NavRow
           icon="language-outline"
+          tint="#54A0FF"
           label="Language"
           value={languageLabel(settings.language)}
           onPress={() => setLangOpen(true)}
@@ -97,6 +104,8 @@ export function SettingsScreen() {
       <SectionTitle>Formatting</SectionTitle>
       <Card padded={false} style={styles.group}>
         <ToggleRow
+          icon="chatbox-ellipses-outline"
+          tint="#7C5CFF"
           label="Spoken punctuation"
           subtitle="Say ‘comma’, ‘period’, ‘question mark’"
           value={settings.curation.spokenPunctuation}
@@ -104,6 +113,8 @@ export function SettingsScreen() {
         />
         <Divider />
         <ToggleRow
+          icon="return-down-back-outline"
+          tint="#32D4C8"
           label="Layout commands"
           subtitle="‘new line’, ‘new paragraph’"
           value={settings.curation.spokenCommands}
@@ -111,24 +122,32 @@ export function SettingsScreen() {
         />
         <Divider />
         <ToggleRow
+          icon="text-outline"
+          tint="#FF9F0A"
           label="Capitalise sentences"
           value={settings.curation.capitalizeSentences}
           onValueChange={(v) => setCuration({ capitalizeSentences: v })}
         />
         <Divider />
         <ToggleRow
+          icon="chevron-up-circle-outline"
+          tint="#FFB84D"
           label="Capitalise first letter"
           value={settings.curation.capitalizeFirst}
           onValueChange={(v) => setCuration({ capitalizeFirst: v })}
         />
         <Divider />
         <ToggleRow
+          icon="person-outline"
+          tint="#FFD60A"
           label="Fix ‘i’ → ‘I’"
           value={settings.curation.fixPronounI}
           onValueChange={(v) => setCuration({ fixPronounI: v })}
         />
         <Divider />
         <ToggleRow
+          icon="sparkles-outline"
+          tint="#FF6B9D"
           label="Remove fillers"
           subtitle="Drop ‘um’, ‘uh’…"
           value={settings.curation.stripFillers}
@@ -136,12 +155,16 @@ export function SettingsScreen() {
         />
         <Divider />
         <ToggleRow
+          icon="ellipse-outline"
+          tint="#8E8CF0"
           label="Auto end period"
           value={settings.curation.autoPeriod}
           onValueChange={(v) => setCuration({ autoPeriod: v })}
         />
         <Divider />
         <ToggleRow
+          icon="copy-outline"
+          tint="#4DC4FF"
           label="Collapse repeats"
           value={settings.curation.dedupeRepeats}
           onValueChange={(v) => setCuration({ dedupeRepeats: v })}
@@ -152,18 +175,24 @@ export function SettingsScreen() {
       <SectionTitle>Output &amp; input</SectionTitle>
       <Card padded={false} style={styles.group}>
         <ToggleRow
+          icon="clipboard-outline"
+          tint="#39D98A"
           label="Auto-copy after dictation"
           value={settings.autoCopy}
           onValueChange={(v) => updateSettings({ autoCopy: v })}
         />
         <Divider />
         <ToggleRow
+          icon="code-outline"
+          tint="#9AA5B1"
           label="Add trailing space"
           value={settings.trailingSpace}
           onValueChange={(v) => updateSettings({ trailingSpace: v })}
         />
         <Divider />
         <ToggleRow
+          icon="mic-outline"
+          tint="#FF7A6B"
           label="Voice editing commands"
           subtitle="‘scratch that’, ‘delete last word’"
           value={settings.voiceCommands}
@@ -171,6 +200,8 @@ export function SettingsScreen() {
         />
         <Divider />
         <ToggleRow
+          icon="radio-outline"
+          tint="#FF6B9D"
           label="Haptic feedback"
           value={settings.haptics}
           onValueChange={(v) => updateSettings({ haptics: v })}
@@ -197,6 +228,7 @@ export function SettingsScreen() {
       <Card padded={false} style={styles.group}>
         <NavRow
           icon="albums-outline"
+          tint="#7C5CFF"
           label="Snippets"
           value={String(snippets.length)}
           onPress={() => push('snippets')}
@@ -204,6 +236,7 @@ export function SettingsScreen() {
         <Divider />
         <NavRow
           icon="book-outline"
+          tint="#54A0FF"
           label="Vocabulary"
           value={String(vocabulary.length)}
           onPress={() => push('vocabulary')}
@@ -211,6 +244,7 @@ export function SettingsScreen() {
         <Divider />
         <NavRow
           icon="swap-horizontal-outline"
+          tint="#32D4C8"
           label="Corrections"
           value={String(corrections.length)}
           onPress={() => push('corrections')}
@@ -222,8 +256,9 @@ export function SettingsScreen() {
       <Card padded={false} style={styles.group}>
         <NavRow
           icon="keypad-outline"
+          tint="#39D98A"
           label="Set up the keyboard"
-          subtitle="Enable VibeFlow — no Full Access needed"
+          subtitle="Guided: add VibeFlow + Allow Full Access"
           onPress={() => push('keyboardSetup')}
         />
       </Card>
@@ -233,6 +268,7 @@ export function SettingsScreen() {
       <Card padded={false} style={styles.group}>
         <NavRow
           icon="information-circle-outline"
+          tint="#9AA5B1"
           label="About VibeFlow"
           onPress={() => push('about')}
         />
@@ -285,10 +321,18 @@ export function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  banner: {
-    backgroundColor: 'rgba(124,92,255,0.12)',
-    borderColor: 'rgba(124,92,255,0.5)',
+  goldEdge: { borderRadius: Radius.card + 1.5, padding: 1.5, marginBottom: 4 },
+  goldCard: { backgroundColor: '#1A1406', borderRadius: Radius.card, padding: 14 },
+  goldIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    backgroundColor: '#F2CA52',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  goldTitle: { color: '#FFE9A8', fontSize: 15.5, fontWeight: '800' },
+  goldSub: { color: 'rgba(255,233,168,0.7)', fontSize: 12.5, marginTop: 2 },
   bannerRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   bannerIcon: {
     width: 44,
