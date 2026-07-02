@@ -591,14 +591,30 @@ final class KeyboardViewController: UIInputViewController {
         mic.pressedColor = (flowListening ? UIColor.systemRed : brand).withAlphaComponent(0.75)
     }
 
+    /// Auto-type the dictation the app just saved. Keyed off App-Group timestamps —
+    /// NOT in-memory state — because iOS routinely kills the keyboard process during
+    /// the hop to the app (which silently broke the old armed-flag handshake).
     private func autoInsertIfReturned() {
-        guard armed else { return }
-        let current = latest()
-        if !current.isEmpty && current != armedSnapshot {
-            textDocumentProxy.insertText(current)
-            lastFlowInserted = current
-        }
         armed = false
+        let current = latest()
+        guard !current.isEmpty else { return }
+        let savedTs = Double(groupString("latest_dictation_ts") ?? "") ?? 0
+        let insertedTs = Double(groupString("kbd_inserted_ts") ?? "") ?? 0
+        let ageMs = Date().timeIntervalSince1970 * 1000 - savedTs
+        // Fresh (≤3 min) and not yet typed anywhere → insert it.
+        guard savedTs > insertedTs, ageMs < 180_000 else { return }
+        store?.set(String(savedTs), forKey: "kbd_inserted_ts")
+        lastFlowInserted = current
+        smartInsert(current)
+    }
+
+    /// Insert with a separating space when the cursor sits right after a word.
+    private func smartInsert(_ text: String) {
+        if let before = textDocumentProxy.documentContextBeforeInput,
+           let last = before.last, !last.isWhitespace, !"\n([{\"'".contains(last) {
+            textDocumentProxy.insertText(" ")
+        }
+        textDocumentProxy.insertText(text)
     }
 
     /// Darwin "result ready" → insert the fresh dictation right where the user is.
@@ -618,12 +634,11 @@ final class KeyboardViewController: UIInputViewController {
         lastFlowInserted = text
         flowListening = false
         applyMicAppearance()
-        // Space-separate from any existing text at the cursor.
-        if let before = textDocumentProxy.documentContextBeforeInput,
-           let last = before.last, !last.isWhitespace, !"\n([{\"'".contains(last) {
-            textDocumentProxy.insertText(" ")
+        // Mark consumed so a later viewWillAppear doesn't re-insert the same text.
+        if let ts = groupString("latest_dictation_ts") {
+            store?.set(ts, forKey: "kbd_inserted_ts")
         }
-        textDocumentProxy.insertText(text)
+        smartInsert(text)
         updateSuggestions()
     }
 

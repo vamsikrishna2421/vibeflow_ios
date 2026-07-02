@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, AppState, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { VoiceCommand } from '@/core';
@@ -28,6 +28,7 @@ import {
   stopFlowSession,
 } from '../../modules/vibeflow-flowsession';
 import {
+  liveActivityAvailable,
   startLiveActivity,
   stopLiveActivity,
   updateLiveActivity,
@@ -44,9 +45,10 @@ export function TalkScreen() {
   const [toast, setToast] = useState<string | null>(null);
   const draftRef = useRef('');
   draftRef.current = draft;
-  // True while a recording was started by the keyboard's mic (vibeflow://record):
-  // we auto-save that dictation so the keyboard can type it when you switch back.
+  // True for the whole keyboard-initiated visit (vibeflow://record → until the app
+  // backgrounds): every dictation in the visit is saved for the keyboard to type.
   const fromKeyboardRef = useRef(false);
+  const [kbVisit, setKbVisit] = useState(false);
   // Flow Session: after that first hop we keep a background session alive (Dynamic
   // Island) so further keyboard mic taps record right here — no more app switches.
   const [sessionActive, setSessionActive] = useState(false);
@@ -83,21 +85,28 @@ export function TalkScreen() {
         // Write synchronously BEFORE the Darwin ping — the store's App-Group mirror
         // runs in a later effect, and the keyboard reads the instant it's pinged.
         setItem('latest_dictation', text);
+        setItem('latest_dictation_ts', String(Date.now()));
         addDictation(text);
         notifyResultReady();
         return;
       }
-      // First hop from the keyboard: save for auto-type on return AND start the
-      // background Flow Session so every next dictation is zero-hop.
+      // Keyboard-initiated visit: EVERY utterance (re)saves the accumulated draft,
+      // stamped so the keyboard auto-types it on return — even if its process was
+      // killed during the hop (the old in-memory handshake didn't survive that).
       if (fromKeyboardRef.current) {
-        fromKeyboardRef.current = false;
+        setItem('latest_dictation', next.trim());
+        setItem('latest_dictation_ts', String(Date.now()));
         addDictation(next.trim());
-        const started = startFlowSession();
-        if (started) {
-          setSessionActive(true);
-          flashToast('Saved ✓  Tap ‹ back — Flow Session is ON: next time just tap the keyboard mic');
-        } else {
-          flashToast('Saved ✓  Tap ‹ back (top-left) — the keyboard types it in automatically');
+        if (!sessionActiveRef.current) {
+          const started = startFlowSession();
+          if (!started) {
+            // Audio session may still be tearing down right after recognition ends.
+            setTimeout(() => {
+              if (startFlowSession()) setSessionActive(true);
+            }, 900);
+          } else {
+            setSessionActive(true);
+          }
         }
         return;
       }
@@ -170,6 +179,7 @@ export function TalkScreen() {
   useEffect(() => {
     if (recordNonce > 0 && dictation.state === 'idle') {
       fromKeyboardRef.current = true;
+      setKbVisit(true);
       // Small warm-up delay: on a cold launch from the keyboard, the audio engine
       // needs a moment or SFSpeechRecognizer reports "no speech". (The hook also
       // retries once as a backstop.)
@@ -178,6 +188,20 @@ export function TalkScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordNonce]);
+
+  // The keyboard-visit ends when the user returns to the host app. Also re-assert
+  // the keep-alive right as we background — the speech lib may have reconfigured
+  // the audio session, and this is the moment that decides if iOS keeps us alive.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'background') {
+        fromKeyboardRef.current = false;
+        setKbVisit(false);
+        if (sessionActiveRef.current) reassertFlowSession();
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // Live Activity (Dynamic Island): while dictating it shows "Listening…" with the
   // live transcript; while a Flow Session is idle it stays up as the session pill.
@@ -241,9 +265,21 @@ export function TalkScreen() {
         <View style={styles.sessionBar}>
           <View style={styles.sessionDot} />
           <Text style={styles.sessionText}>
-            Flow Session on — dictate from the keyboard mic, no switching
+            {liveActivityAvailable()
+              ? 'Flow Session on — dictate from the keyboard mic, no switching'
+              : 'Flow Session on. For the Dynamic Island pill, enable Live Activities: iOS Settings → VibeFlow'}
           </Text>
           <GhostButton label="End" tone="danger" onPress={endSession} />
+        </View>
+      ) : null}
+
+      {kbVisit && !listening && showDraft ? (
+        <View style={[styles.sessionBar, { borderColor: 'rgba(52,199,89,0.45)', backgroundColor: 'rgba(52,199,89,0.10)' }]}>
+          <Ionicons name="checkmark-circle" size={18} color={Colors.success} />
+          <Text style={styles.sessionText}>
+            Saved for your keyboard. Tap ‹ back (top-left) — it types itself.
+            {'\n'}Or tap the mic to add more.
+          </Text>
         </View>
       ) : null}
 
