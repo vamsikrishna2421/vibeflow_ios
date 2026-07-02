@@ -118,6 +118,13 @@ export function useDictation({ lang, onDeviceOnly, onFinal }: UseDictationOption
           requiresOnDeviceRecognition: onDeviceOnly,
           addsPunctuation: true,
           volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
+          // Join the Flow Session's keep-alive audio session instead of replacing
+          // it — reconfiguring the session from the background fails silently.
+          iosCategory: {
+            category: 'playAndRecord',
+            categoryOptions: ['defaultToSpeaker', 'allowBluetooth', 'mixWithOthers'],
+            mode: 'measurement',
+          },
         });
       } catch (e: any) {
         setError(e?.message ?? 'Could not start dictation.');

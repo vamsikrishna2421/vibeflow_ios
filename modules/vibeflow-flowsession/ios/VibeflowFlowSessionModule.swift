@@ -18,6 +18,7 @@ public class VibeflowFlowSessionModule: Module {
   private let appGroup = "group.com.vibeflow.mobile"
   static let toggleName = "com.vibeflow.flow.toggle"
   static let resultName = "com.vibeflow.flow.result"
+  static let statusName = "com.vibeflow.flow.status"
 
   private var engine: AVAudioEngine?
   private var player: AVAudioPlayerNode?
@@ -72,6 +73,16 @@ public class VibeflowFlowSessionModule: Module {
       CFNotificationCenterPostNotification(
         CFNotificationCenterGetDarwinNotifyCenter(),
         CFNotificationName(Self.resultName as CFString),
+        nil, nil, true
+      )
+    }
+
+    /// Ping the keyboard that kbd_flow_status changed (listening/processing/error…)
+    /// so its mic can animate the real state.
+    Function("notifyStatus") {
+      CFNotificationCenterPostNotification(
+        CFNotificationCenterGetDarwinNotifyCenter(),
+        CFNotificationName(Self.statusName as CFString),
         nil, nil, true
       )
     }

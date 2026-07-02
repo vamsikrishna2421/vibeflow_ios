@@ -44,7 +44,10 @@ function DeepLinkBridge() {
   requestRef.current = requestRecord;
   useEffect(() => {
     const handle = (url: string | null) => {
-      if (url && url.includes('record')) requestRef.current();
+      if (url && url.includes('record')) {
+        const host = /[?&]host=([A-Za-z0-9.\-]+)/.exec(url)?.[1] ?? null;
+        requestRef.current(host);
+      }
     };
     Linking.getInitialURL().then(handle).catch(() => {});
     const sub = Linking.addEventListener('url', (e) => handle(e.url));

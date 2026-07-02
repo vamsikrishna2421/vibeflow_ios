@@ -10,6 +10,7 @@ const native = requireOptionalNativeModule<{
   stop(): void;
   reassert(): void;
   notifyResultReady(): void;
+  notifyStatus?(): void;
   addListener(event: 'recordToggle', listener: () => void): { remove(): void };
 }>('VibeflowFlowSession');
 
@@ -52,6 +53,13 @@ export function reassertFlowSession(): void {
 export function notifyResultReady(): void {
   try {
     native?.notifyResultReady();
+  } catch {}
+}
+
+/** Ping the keyboard that kbd_flow_status changed (drives the mic animation). */
+export function notifyFlowStatus(): void {
+  try {
+    native?.notifyStatus?.();
   } catch {}
 }
 

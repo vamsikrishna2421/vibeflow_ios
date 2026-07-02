@@ -9,6 +9,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Linking from 'expo-linking';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, AppState, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,11 +21,13 @@ import { useDictation } from '@/hooks/useDictation';
 import { useNav } from '@/navigation/nav';
 import { buildPipelineConfig, runDictation, useStore } from '@/store';
 import { setItem } from '@/store/appGroup';
+import { hostAppFor } from '@/store/hostApps';
 import { Colors, Radius, micGradient } from '@/theme/colors';
 import { Badge, GhostButton, haptic } from '@/ui/kit';
 import {
   addRecordToggleListener,
   flowSessionModuleAvailable,
+  notifyFlowStatus,
   notifyResultReady,
   reassertFlowSession,
   startFlowSession,
@@ -42,7 +45,8 @@ const BAR_COUNT = 9;
 export function TalkScreen() {
   const insets = useSafeAreaInsets();
   const { settings, snippets, vocabulary, corrections, addDictation } = useStore();
-  const { recordNonce } = useNav();
+  const { recordNonce, recordHost } = useNav();
+  const hostApp = hostAppFor(recordHost);
 
   const [draft, setDraft] = useState('');
   const [toast, setToast] = useState<string | null>(null);
@@ -89,8 +93,10 @@ export function TalkScreen() {
         // runs in a later effect, and the keyboard reads the instant it's pinged.
         setItem('latest_dictation', text);
         setItem('latest_dictation_ts', String(Date.now()));
+        setItem('kbd_flow_status', 'inserted');
         addDictation(text);
         notifyResultReady();
+        notifyFlowStatus();
         return;
       }
       // Keyboard-initiated visit: EVERY utterance (re)saves the accumulated draft,
@@ -155,14 +161,31 @@ export function TalkScreen() {
     const sub = addRecordToggleListener(() => {
       const d = dictationRef.current;
       if (d.state === 'listening') {
+        updateLiveActivity('Finishing…', '');
+        setItem('kbd_flow_status', 'processing');
+        notifyFlowStatus();
         d.stop();
       } else {
         flowUtteranceRef.current = true;
+        // Visible proof the toggle reached us — island flips before the mic warms.
+        updateLiveActivity('Starting mic…', '');
+        setItem('kbd_flow_status', 'listening');
+        notifyFlowStatus();
         d.start();
       }
     });
     return () => sub?.remove();
   }, []);
+
+  // Surface background dictation failures where the user can see them (island +
+  // App Group) — a silent error here looked like "I spoke and nothing happened".
+  useEffect(() => {
+    if (dictation.error && sessionActiveRef.current) {
+      updateLiveActivity('Mic error — tap keyboard mic to retry', dictation.error);
+      setItem('kbd_flow_status', `error: ${dictation.error}`);
+      notifyFlowStatus();
+    }
+  }, [dictation.error]);
 
   // After each utterance ends, re-assert the keep-alive so iOS doesn't suspend us
   // between dictations (the speech lib can reconfigure the audio session on stop).
@@ -310,10 +333,22 @@ export function TalkScreen() {
             <>
               <Ionicons name="checkmark-circle" size={64} color={Colors.success} />
               <Text style={styles.bootTitle}>You’re set — go back</Text>
-              <Text style={styles.bootBig}>
-                Tap <Text style={{ color: Colors.brand, fontWeight: '800' }}>‹ back</Text> in the{' '}
-                <Text style={{ fontWeight: '800' }}>very top-left corner</Text> of the screen
-              </Text>
+              {hostApp ? (
+                <Pressable
+                  onPress={() => Linking.openURL(hostApp.scheme).catch(() => {})}
+                  style={({ pressed }) => [styles.saveBtn, { alignSelf: 'stretch', marginTop: 18 }, pressed && { opacity: 0.9 }]}
+                >
+                  <LinearGradient colors={[...micGradient]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.saveGrad}>
+                    <Ionicons name="arrow-undo" size={20} color="#fff" />
+                    <Text style={styles.saveText}>Return to {hostApp.name}</Text>
+                  </LinearGradient>
+                </Pressable>
+              ) : (
+                <Text style={styles.bootBig}>
+                  Tap <Text style={{ color: Colors.brand, fontWeight: '800' }}>‹ back</Text> in the{' '}
+                  <Text style={{ fontWeight: '800' }}>very top-left corner</Text> of the screen
+                </Text>
+              )}
               <Text style={styles.bootSub}>
                 Then tap the 🎤 on the keyboard and speak right inside your app —
                 while reading your messages. Your words appear where you type.

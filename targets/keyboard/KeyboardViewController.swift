@@ -412,12 +412,14 @@ final class KeyboardViewController: UIInputViewController {
         b.setTitle(base, for: .normal)
         b.setTitleColor(inkColor, for: .normal)
         b.titleLabel?.font = .systemFont(ofSize: 22)
+        // Insert on TOUCH-DOWN (like fast keyboards): waiting for touch-up made
+        // rapid typing drop letters when taps overlapped.
         if isLetter {
             b.accessibilityIdentifier = base       // lowercase base for re-titling
             letterButtons.append(b)
-            b.addAction(UIAction { [weak self] _ in self?.charTapped(base) }, for: .touchUpInside)
+            b.addAction(UIAction { [weak self] _ in self?.charTapped(base) }, for: .touchDown)
         } else {
-            b.addAction(UIAction { [weak self] _ in self?.insert(base) }, for: .touchUpInside)
+            b.addAction(UIAction { [weak self] _ in self?.insert(base) }, for: .touchDown)
         }
         return b
     }
@@ -642,11 +644,22 @@ final class KeyboardViewController: UIInputViewController {
         updateSuggestions()
     }
 
+    /// Bundle id of the app hosting the keyboard (WhatsApp etc.), so VibeFlow can
+    /// show a "Return to <app>" button. Same non-public key the popular KeyboardKit
+    /// framework ships with; falls back to nil if iOS ever removes it.
+    private var hostBundleID: String? {
+        parent?.value(forKey: "_hostBundleID") as? String
+    }
+
     /// Opening a URL from a keyboard extension requires "Allow Full Access". The old
     /// `openURL:` selector was removed long ago, so walk the responder chain to the
     /// UIApplication and call the modern `open(_:)`.
     private func openApp() {
-        guard let url = URL(string: recordURL) else { return }
+        var link = recordURL
+        if let host = hostBundleID, !host.isEmpty {
+            link += "&host=\(host)"
+        }
+        guard let url = URL(string: link) else { return }
         var responder: UIResponder? = self
         while let r = responder {
             if let app = r as? UIApplication {
