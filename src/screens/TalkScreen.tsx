@@ -44,7 +44,12 @@ const BAR_COUNT = 9;
 
 export function TalkScreen() {
   const insets = useSafeAreaInsets();
-  const { settings, snippets, vocabulary, corrections, addDictation } = useStore();
+  const { settings, snippets, vocabulary, corrections, history, addDictation } = useStore();
+  // Lifetime words dictated — a small, proud stat under the header.
+  const totalWords = useMemo(
+    () => history.reduce((n, d) => n + d.text.split(/\s+/).filter(Boolean).length, 0),
+    [history],
+  );
   const { recordNonce, recordHost } = useNav();
   const hostApp = hostAppFor(recordHost);
 
@@ -299,12 +304,18 @@ export function TalkScreen() {
         <Badge label={settings.onDeviceOnly ? 'ON-DEVICE' : 'CLOUD'} tone={settings.onDeviceOnly ? 'brand' : 'amber'} />
       </View>
 
+      {totalWords > 0 ? (
+        <Text style={styles.wordStat}>
+          🎙 {totalWords.toLocaleString()} words spoken with VibeFlow
+        </Text>
+      ) : null}
+
       {sessionActive ? (
         <View style={styles.sessionBar}>
-          <View style={styles.sessionDot} />
+          <PulsingDot />
           <Text style={styles.sessionText}>
             {liveActivityAvailable()
-              ? 'Flow Session on — dictate from the keyboard mic, no switching'
+              ? 'Flow Session live — dictate from the keyboard mic, no switching'
               : 'Flow Session on. For the Dynamic Island pill, enable Live Activities: iOS Settings → VibeFlow'}
           </Text>
           <GhostButton label="End" tone="danger" onPress={endSession} />
@@ -452,6 +463,29 @@ export function TalkScreen() {
         {lastFlowStatus ? ` · flow: ${lastFlowStatus}` : ''}
         {recordHost ? ` · from: ${recordHost}` : ''}
       </Text>
+    </View>
+  );
+}
+
+// --- live session dot (breathes while the engine is alive) --------------------
+
+function PulsingDot() {
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] });
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 0.45] });
+  return (
+    <View style={{ width: 14, height: 14, alignItems: 'center', justifyContent: 'center' }}>
+      <Animated.View style={[styles.sessionDot, { transform: [{ scale }], opacity }]} />
     </View>
   );
 }
@@ -674,13 +708,18 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 14,
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: Radius.chip,
-    backgroundColor: 'rgba(124,92,255,0.12)',
+    paddingVertical: 12,
+    borderRadius: 999,
+    backgroundColor: 'rgba(124,92,255,0.14)',
     borderWidth: 1,
-    borderColor: 'rgba(124,92,255,0.35)',
+    borderColor: 'rgba(160,130,255,0.45)',
+    shadowColor: Colors.brand,
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
   },
-  sessionDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.brand },
+  sessionDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#39D98A' },
+  wordStat: { color: Colors.inkFaint, fontSize: 12.5, marginTop: 10 },
   sessionText: { flex: 1, color: Colors.ink, fontSize: 12.5, lineHeight: 17 },
 
   bootTitle: { color: Colors.ink, fontSize: 24, fontWeight: '800', marginTop: 18, textAlign: 'center' },
