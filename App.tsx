@@ -37,13 +37,18 @@ export default function App() {
  */
 function DeepLinkBridge() {
   const { requestRecord } = useNav();
+  // Keep the latest callback in a ref so the effect below can run EXACTLY once.
+  // (Depending on `requestRecord` re-ran the effect every nonce bump, re-reading
+  // the same initial URL → infinite request loop → the UI flickered.)
+  const requestRef = useRef(requestRecord);
+  requestRef.current = requestRecord;
   useEffect(() => {
     const handle = (url: string | null) => {
-      if (url && url.includes('record')) requestRecord();
+      if (url && url.includes('record')) requestRef.current();
     };
     Linking.getInitialURL().then(handle).catch(() => {});
     const sub = Linking.addEventListener('url', (e) => handle(e.url));
     return () => sub.remove();
-  }, [requestRecord]);
+  }, []);
   return null;
 }
