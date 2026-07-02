@@ -11,6 +11,40 @@ final class KeyButton: UIButton {
     }
 }
 
+/// Container that forgives imprecise taps: a touch landing in the gutter between
+/// keys is routed to the NEAREST key instead of being dropped — the same behaviour
+/// that makes Apple/Google keyboards feel effortless.
+final class GapForgivingStack: UIStackView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        if hit is KeyButton { return hit }
+        if let nearest = nearestKey(to: point) { return nearest }
+        return hit
+    }
+
+    private func nearestKey(to point: CGPoint) -> KeyButton? {
+        var best: (key: KeyButton, dist: CGFloat)?
+        func walk(_ view: UIView) {
+            for sub in view.subviews {
+                if let key = sub as? KeyButton, !key.isHidden, key.alpha > 0.01, key.window != nil {
+                    let frame = key.convert(key.bounds, to: self)
+                    let dx = max(frame.minX - point.x, 0, point.x - frame.maxX)
+                    let dy = max(frame.minY - point.y, 0, point.y - frame.maxY)
+                    let d = dx * dx + dy * dy
+                    if best == nil || d < best!.dist { best = (key, d) }
+                } else {
+                    walk(sub)
+                }
+            }
+        }
+        walk(self)
+        // Only claim touches within ~12pt of a key's edge (covers all gutters,
+        // never steals wildly distant touches).
+        guard let best, best.dist <= 144 else { return nil }
+        return best.key
+    }
+}
+
 /// The VibeFlow keyboard — a fast system-style QWERTY keyboard. The space bar reads
 /// "VibeFlow" and a brand-coloured mic key starts voice dictation.
 ///
@@ -198,7 +232,7 @@ final class KeyboardViewController: UIInputViewController {
         rowsStack.distribution = .fillEqually
         rowsStack.spacing = 10
 
-        let root = UIStackView(arrangedSubviews: [topBar, rowsStack])
+        let root = GapForgivingStack(arrangedSubviews: [topBar, rowsStack])
         root.axis = .vertical
         root.spacing = 6
         root.translatesAutoresizingMaskIntoConstraints = false
