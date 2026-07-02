@@ -331,10 +331,28 @@ export function TalkScreen() {
                   </LinearGradient>
                 </Pressable>
               ) : (
-                <Text style={styles.bootBig}>
-                  Tap <Text style={{ color: Colors.brand, fontWeight: '800' }}>‹ back</Text> in the{' '}
-                  <Text style={{ fontWeight: '800' }}>very top-left corner</Text> of the screen
-                </Text>
+                <>
+                  {/* Host app unknown → deterministic quick-return buttons (center
+                      screen; the top-left breadcrumb is unusable on a cracked
+                      corner). Tapping opens the app via its URL scheme. */}
+                  <Pressable
+                    onPress={() => Linking.openURL('whatsapp://').catch(() => {})}
+                    style={({ pressed }) => [styles.saveBtn, { alignSelf: 'stretch', marginTop: 18 }, pressed && { opacity: 0.9 }]}
+                  >
+                    <LinearGradient colors={[...micGradient]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.saveGrad}>
+                      <Ionicons name="logo-whatsapp" size={20} color="#fff" />
+                      <Text style={styles.saveText}>Return to WhatsApp</Text>
+                    </LinearGradient>
+                  </Pressable>
+                  <View style={styles.quickReturnRow}>
+                    <GhostButton label="Telegram" onPress={() => Linking.openURL('tg://').catch(() => {})} style={styles.flexBtn} />
+                    <GhostButton label="Messages" onPress={() => Linking.openURL('messages://').catch(() => {})} style={styles.flexBtn} />
+                    <GhostButton label="Slack" onPress={() => Linking.openURL('slack://').catch(() => {})} style={styles.flexBtn} />
+                  </View>
+                  <Text style={[styles.bootSub, { marginTop: 10 }]}>
+                    …or a different app: tap ‹ back in the top-left corner
+                  </Text>
+                </>
               )}
               <Text style={styles.bootSub}>
                 Then tap the 🎤 on the keyboard and speak right inside your app —
@@ -432,6 +450,7 @@ export function TalkScreen() {
       <Text style={styles.buildStamp}>
         code {Updates.updateId ? Updates.updateId.slice(-8) : 'embedded'}
         {lastFlowStatus ? ` · flow: ${lastFlowStatus}` : ''}
+        {recordHost ? ` · from: ${recordHost}` : ''}
       </Text>
     </View>
   );
@@ -679,6 +698,7 @@ const styles = StyleSheet.create({
 
   auroraBlob: { position: 'absolute', width: 420, height: 420 },
   auroraFill: { flex: 1, borderRadius: 210 },
+  quickReturnRow: { flexDirection: 'row', gap: 10, marginTop: 12, alignSelf: 'stretch' },
   live: { color: Colors.ink, fontSize: 18, lineHeight: 25, textAlign: 'center', marginTop: 26, paddingHorizontal: 8 },
   hint: { color: Colors.inkFaint, fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: 26, paddingHorizontal: 16 },
   error: { color: Colors.accentRed, fontSize: 14, textAlign: 'center', marginTop: 26, paddingHorizontal: 16 },
