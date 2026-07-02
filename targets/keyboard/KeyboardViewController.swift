@@ -40,6 +40,8 @@ final class KeyboardViewController: UIInputViewController {
     private var lastFlowInserted = ""
     /// Failsafe: if the app doesn't answer a toggle quickly, it's dead — hop instead.
     private var toggleAckTimer: Timer?
+    /// Auto-dismisses info/error lines in the strip.
+    private var errorClearTimer: Timer?
 
     // iOS's built-in spell/prediction engine — powers live suggestions + autocorrect.
     private let textChecker = UITextChecker()
@@ -61,7 +63,7 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: State
     private enum ShiftState { case off, on, locked }
-    private enum Page { case letters, numbers, symbols }
+    private enum Page { case letters, numbers, symbols, emojis }
     private var shift: ShiftState = .on
     private var page: Page = .letters
 
@@ -90,6 +92,12 @@ final class KeyboardViewController: UIInputViewController {
     // Romanized-Telugu/Hindi + user words the keyboard should treat as valid (never
     // autocorrect away) and offer as completions — e.g. "avunu", "kadu", "sare".
     private var learnedWords: [String] = []
+
+    // Next-word prediction: bigrams mined from the user's dictations by the app
+    // (word → words they usually say next), shown when no word is being typed.
+    private var bigrams: [String: [String]] = [:]
+    private static let sentenceStarters = ["I", "The", "We"]
+    private static let commonNext = ["the", "to", "and"]
 
     // MARK: Views / tracking
     private var suggestionsStack: UIStackView!
@@ -214,7 +222,7 @@ final class KeyboardViewController: UIInputViewController {
     /// fall back to recent dictations (or the mic hint).
     private func updateSuggestions() {
         let word = currentWord()
-        guard !word.isEmpty else { showIdleSuggestions(); return }
+        guard !word.isEmpty else { showNextWordPredictions(); return }
         let lw = word.lowercased()
 
         let ns = word as NSString
@@ -254,13 +262,54 @@ final class KeyboardViewController: UIInputViewController {
         case .processing: title = "✨ Working on your words…"
         case .idle:
             let status = groupString("kbd_flow_status") ?? ""
-            title = status.hasPrefix("error")
-                ? "⚠️ \(status)"
-                : "🎙  Tap the mic and just speak"
+            if status.hasPrefix("error") {
+                // Friendly info line, auto-clears after a few seconds.
+                let detail = status.replacingOccurrences(of: "error: ", with: "")
+                title = "💬 \(detail)"
+                errorClearTimer?.invalidate()
+                errorClearTimer = Timer.scheduledTimer(withTimeInterval: 3.5, repeats: false) { [weak self] _ in
+                    self?.store?.set("", forKey: "kbd_flow_status")
+                    self?.updateSuggestions()
+                }
+            } else {
+                title = "🎙  Tap the mic and just speak"
+            }
         }
         let hint = suggestionButton(title: title, faint: flowMicState == .idle)
         hint.addAction(UIAction { [weak self] _ in self?.micTapped() }, for: .touchUpInside)
         suggestionsStack.addArrangedSubview(hint)
+    }
+
+    /// No word in progress → predict the NEXT word from sentence context: bigrams
+    /// learned from the user's dictations, sentence starters after ./!/?, common
+    /// fillers as backstop. Falls back to the status hint with no context.
+    private func showNextWordPredictions() {
+        guard flowMicState == .idle, page == .letters else { showIdleSuggestions(); return }
+        let before = (textDocumentProxy.documentContextBeforeInput ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        guard !before.isEmpty else { showIdleSuggestions(); return }
+
+        var preds: [String]
+        if let last = before.last, ".!?\n".contains(last) {
+            preds = Self.sentenceStarters
+        } else {
+            let lastWord = before
+                .split(whereSeparator: { !$0.isLetter && $0 != "'" })
+                .last.map(String.init)?.lowercased() ?? ""
+            preds = bigrams[lastWord] ?? []
+            for w in Self.commonNext where preds.count < 3 && !preds.contains(w) {
+                preds.append(w)
+            }
+        }
+        preds = Array(preds.prefix(3))
+        guard !preds.isEmpty else { showIdleSuggestions(); return }
+
+        suggestionsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for p in preds {
+            let b = suggestionButton(title: p, faint: false)
+            b.addAction(UIAction { [weak self] _ in self?.insert(p + " ") }, for: .touchUpInside)
+            suggestionsStack.addArrangedSubview(b)
+        }
     }
 
     /// The run of letters immediately before the cursor (the word being typed).
@@ -321,6 +370,10 @@ final class KeyboardViewController: UIInputViewController {
             rowsStack.addArrangedSubview(charRow(["[","]","{","}","#","%","^","*","+","="], letters: false))
             rowsStack.addArrangedSubview(charRow(["_","\\","|","~","<",">","€","£","¥","•"], letters: false))
             rowsStack.addArrangedSubview(punctBottomRow(toggle: "123", keys: [".",",","?","!","'"]) { [weak self] in self?.page = .numbers; self?.rebuildKeys() })
+        case .emojis:
+            rowsStack.addArrangedSubview(charRow(["😀","😂","🥹","❤️","👍","🙏","😊","🎉"], letters: false))
+            rowsStack.addArrangedSubview(charRow(["😍","🥰","😭","😅","🤔","👌","🙌","🔥"], letters: false))
+            rowsStack.addArrangedSubview(charRow(["✨","😎","🤝","👏","💯","🥳","😢","💪"], letters: false))
         }
         rowsStack.addArrangedSubview(functionRow())
         applyShiftAppearance()
@@ -389,14 +442,30 @@ final class KeyboardViewController: UIInputViewController {
         row.axis = .horizontal
         row.spacing = 6
 
-        let modeKey = specialKey(title: page == .letters ? "123" : "ABC")
+        let modeKey = specialKey(title: (page == .numbers || page == .symbols) ? "ABC" : "123")
         modeKey.addAction(UIAction { [weak self] _ in
-            self?.page = (self?.page == .letters ? .numbers : .letters)
-            self?.rebuildKeys()
+            guard let self else { return }
+            self.page = (self.page == .numbers || self.page == .symbols) ? .letters : .numbers
+            self.rebuildKeys()
         }, for: .touchUpInside)
 
-        let globe = specialKey(systemImage: "globe")
-        globe.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
+        // Only show our own globe when iOS does NOT already provide one in the bar
+        // below the keyboard; otherwise that slot becomes the emoji page key.
+        let globe: KeyButton?
+        if needsInputModeSwitchKey {
+            let g = specialKey(systemImage: "globe")
+            g.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
+            globe = g
+        } else {
+            globe = nil
+        }
+        let emoji = specialKey(title: page == .emojis ? "ABC" : "😀")
+        emoji.titleLabel?.font = .systemFont(ofSize: 20)
+        emoji.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            self.page = self.page == .emojis ? .letters : .emojis
+            self.rebuildKeys()
+        }, for: .touchUpInside)
 
         let space = specialKey(title: "VibeFlow")
         space.baseColor = keyColor
@@ -409,14 +478,16 @@ final class KeyboardViewController: UIInputViewController {
         ret.titleLabel?.font = .systemFont(ofSize: 16)
         ret.addAction(UIAction { [weak self] _ in self?.insert("\n") }, for: .touchUpInside)
 
-        // Bottom row (mic now lives in the top toolbar, Wispr-style): 123 · globe · space · return
+        // Bottom row (mic lives in the top toolbar): 123 · [globe] · 😀 · space · return
         row.addArrangedSubview(modeKey)
-        row.addArrangedSubview(globe)
+        if let globe { row.addArrangedSubview(globe) }
+        row.addArrangedSubview(emoji)
         row.addArrangedSubview(space)
         row.addArrangedSubview(ret)
 
         modeKey.widthAnchor.constraint(equalTo: row.widthAnchor, multiplier: 0.13).isActive = true
-        globe.widthAnchor.constraint(equalTo: modeKey.widthAnchor).isActive = true
+        globe?.widthAnchor.constraint(equalTo: modeKey.widthAnchor).isActive = true
+        emoji.widthAnchor.constraint(equalTo: modeKey.widthAnchor).isActive = true
         ret.widthAnchor.constraint(equalTo: row.widthAnchor, multiplier: 0.20).isActive = true
         return row
     }
@@ -496,7 +567,10 @@ final class KeyboardViewController: UIInputViewController {
 
     private func charTapped(_ base: String) {
         textDocumentProxy.insertText(shift == .off ? base : base.uppercased())
-        if shift == .on { shift = .off }   // consume one-shot shift
+        if shift == .on {
+            shift = .off                   // consume one-shot shift…
+            applyShiftAppearance()         // …and re-title the keys immediately
+        }
         updateShiftForContext()
         scheduleSuggestions()
     }
@@ -794,10 +868,16 @@ final class KeyboardViewController: UIInputViewController {
     /// Load the user + starter romanized-Telugu/Hindi words (written by the app) and
     /// teach them to iOS's spell checker so they're never flagged/autocorrected.
     private func loadLearnedWords() {
-        guard let json = groupString("kbd_learned_words"),
-              let data = json.data(using: .utf8),
-              let list = try? JSONDecoder().decode([String].self, from: data) else { return }
-        learnedWords = list
-        for w in list where !w.isEmpty { UITextChecker.learnWord(w) }
+        if let json = groupString("kbd_learned_words"),
+           let data = json.data(using: .utf8),
+           let list = try? JSONDecoder().decode([String].self, from: data) {
+            learnedWords = list
+            for w in list where !w.isEmpty { UITextChecker.learnWord(w) }
+        }
+        if let json = groupString("kbd_bigrams"),
+           let data = json.data(using: .utf8),
+           let map = try? JSONDecoder().decode([String: [String]].self, from: data) {
+            bigrams = map
+        }
     }
 }

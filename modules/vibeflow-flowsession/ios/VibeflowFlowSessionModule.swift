@@ -203,7 +203,7 @@ public class VibeflowFlowSessionModule: Module {
     request = nil
 
     guard let text, !text.isEmpty else {
-      setStatus("error: no speech detected — tap the mic and try again")
+      setStatus("error: Didn’t catch that — tap 🎤 and try again")
       return
     }
     group?.set(text, forKey: "latest_dictation")
