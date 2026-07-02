@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
