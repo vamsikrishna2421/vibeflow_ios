@@ -24,6 +24,7 @@ import { Colors, Radius, micGradient } from '@/theme/colors';
 import { Badge, GhostButton, haptic } from '@/ui/kit';
 import {
   addRecordToggleListener,
+  flowSessionModuleAvailable,
   notifyResultReady,
   reassertFlowSession,
   startFlowSession,
@@ -181,30 +182,37 @@ export function TalkScreen() {
   // Keyboard mic → bootstrap hop. The product rule: you NEVER dictate inside
   // VibeFlow. This visit only (a) gets mic/speech permission, (b) turns the Flow
   // Session on, then tells you to go straight back — every utterance (including
-  // the first) is spoken inside the host app via the keyboard mic.
+  // the first) is spoken inside the host app via the keyboard mic. There is NO
+  // record-here fallback anymore; if the engine can't start we say so and offer
+  // Retry, with diagnostics.
+  const [bootState, setBootState] = useState<'starting' | 'on' | 'failed'>('starting');
+  const tryStartSession = useCallback(async () => {
+    setBootState('starting');
+    try {
+      const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!perm?.granted) {
+        setBootState('failed');
+        return;
+      }
+    } catch {}
+    let ok = startFlowSession();
+    if (!ok) {
+      // Audio session can need a beat on cold launch — retry once.
+      await new Promise((r) => setTimeout(r, 800));
+      ok = startFlowSession();
+    }
+    if (ok) {
+      setSessionActive(true);
+      setBootState('on');
+    } else {
+      setBootState('failed');
+    }
+  }, []);
+
   useEffect(() => {
-    if (recordNonce > 0 && dictation.state === 'idle') {
+    if (recordNonce > 0) {
       setKbVisit(true);
-      (async () => {
-        try {
-          const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-          if (!perm?.granted) return;
-        } catch {}
-        let ok = startFlowSession();
-        if (!ok) {
-          // Audio session can need a beat on cold launch — retry once.
-          await new Promise((r) => setTimeout(r, 800));
-          ok = startFlowSession();
-        }
-        if (ok) {
-          setSessionActive(true);
-        } else {
-          // Older native build without the session module: fall back to the
-          // record-here round-trip so the mic still works.
-          fromKeyboardRef.current = true;
-          setTimeout(() => dictationRef.current.start(), 300);
-        }
-      })();
+      tryStartSession();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordNonce]);
@@ -293,19 +301,50 @@ export function TalkScreen() {
         </View>
       ) : null}
 
-      {kbVisit && !listening ? (
-        <View style={[styles.sessionBar, { borderColor: 'rgba(52,199,89,0.45)', backgroundColor: 'rgba(52,199,89,0.10)' }]}>
-          <Ionicons name="checkmark-circle" size={18} color={Colors.success} />
-          <Text style={styles.sessionText}>
-            {sessionActive
-              ? 'Flow Session is ON. Tap ‹ back (top-left), then tap the keyboard mic — you dictate right inside your app.'
-              : showDraft
-                ? 'Saved for your keyboard. Tap ‹ back (top-left) — it types itself.'
-                : 'Starting your Flow Session…'}
-          </Text>
-        </View>
-      ) : null}
 
+      {kbVisit ? (
+        // Bootstrap hero: you never dictate here — this screen only arms the
+        // session and points you back to the app you came from.
+        <View style={styles.center}>
+          {bootState === 'on' ? (
+            <>
+              <Ionicons name="checkmark-circle" size={64} color={Colors.success} />
+              <Text style={styles.bootTitle}>You’re set — go back</Text>
+              <Text style={styles.bootBig}>
+                Tap <Text style={{ color: Colors.brand, fontWeight: '800' }}>‹ back</Text> in the{' '}
+                <Text style={{ fontWeight: '800' }}>very top-left corner</Text> of the screen
+              </Text>
+              <Text style={styles.bootSub}>
+                Then tap the 🎤 on the keyboard and speak right inside your app —
+                while reading your messages. Your words appear where you type.
+              </Text>
+            </>
+          ) : bootState === 'starting' ? (
+            <>
+              <Ionicons name="hourglass-outline" size={56} color={Colors.brand} />
+              <Text style={styles.bootTitle}>Starting your Flow Session…</Text>
+            </>
+          ) : (
+            <>
+              <Ionicons name="alert-circle" size={56} color={Colors.accentRed} />
+              <Text style={styles.bootTitle}>Couldn’t start the session</Text>
+              <Text style={styles.bootSub}>
+                engine {flowSessionModuleAvailable() ? '✓ loaded' : '✗ missing (update the app in TestFlight)'} ·
+                island {liveActivityAvailable() ? '✓' : '✗ (Settings → VibeFlow → Live Activities)'}
+              </Text>
+              <Pressable onPress={tryStartSession} style={({ pressed }) => [styles.saveBtn, { alignSelf: 'stretch' }, pressed && { opacity: 0.9 }]}>
+                <LinearGradient colors={[...micGradient]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.saveGrad}>
+                  <Ionicons name="refresh" size={18} color="#fff" />
+                  <Text style={styles.saveText}>Try again</Text>
+                </LinearGradient>
+              </Pressable>
+            </>
+          )}
+          <Pressable onPress={() => setKbVisit(false)} style={{ marginTop: 22 }}>
+            <Text style={{ color: Colors.inkFaint, fontSize: 13 }}>Use the in-app mic instead</Text>
+          </Pressable>
+        </View>
+      ) : (
       <View style={styles.center}>
         <Text style={styles.prompt}>
           {listening ? 'Listening…' : showDraft ? 'Tap to add more' : 'Tap to talk'}
@@ -328,6 +367,7 @@ export function TalkScreen() {
           </Text>
         )}
       </View>
+      )}
 
       {showDraft ? (
         <View style={styles.draftCard}>
@@ -504,6 +544,10 @@ const styles = StyleSheet.create({
   },
   sessionDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.brand },
   sessionText: { flex: 1, color: Colors.ink, fontSize: 12.5, lineHeight: 17 },
+
+  bootTitle: { color: Colors.ink, fontSize: 24, fontWeight: '800', marginTop: 18, textAlign: 'center' },
+  bootBig: { color: Colors.ink, fontSize: 20, lineHeight: 28, textAlign: 'center', marginTop: 14, paddingHorizontal: 8 },
+  bootSub: { color: Colors.inkFaint, fontSize: 14.5, lineHeight: 21, textAlign: 'center', marginTop: 14, paddingHorizontal: 6 },
 
   micArea: { width: 150, height: 150, alignItems: 'center', justifyContent: 'center' },
   ring: { position: 'absolute', width: 120, height: 120, borderRadius: 60, backgroundColor: Colors.brand },

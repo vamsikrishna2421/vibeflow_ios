@@ -13,6 +13,11 @@ const native = requireOptionalNativeModule<{
   addListener(event: 'recordToggle', listener: () => void): { remove(): void };
 }>('VibeflowFlowSession');
 
+/** Whether the native engine module is present in this binary at all. */
+export function flowSessionModuleAvailable(): boolean {
+  return native != null;
+}
+
 export function flowSessionActive(): boolean {
   try {
     return native?.isActive() ?? false;
