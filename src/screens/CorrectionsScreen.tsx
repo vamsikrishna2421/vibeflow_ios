@@ -1,5 +1,5 @@
 /**
- * Corrections — teach VibeFlow to auto-fix words the recogniser commonly mishears.
+ * Corrections — teach Mynah to auto-fix words the recogniser commonly mishears.
  * Each entry is a whole-word, case-insensitive "heard → meant" rewrite that runs
  * inside the text pipeline. Add/edit happens in a modal; deletes confirm first.
  */
@@ -102,7 +102,7 @@ export function CorrectionsScreen() {
         <EmptyState
           icon="swap-horizontal-outline"
           title="No corrections"
-          message="Teach VibeFlow to auto-fix words it commonly mishears."
+          message="Teach Mynah to auto-fix words it commonly mishears."
           actionLabel="Add correction"
           onAction={openAdd}
         />

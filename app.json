@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "VibeFlow",
+    "name": "Mynah",
     "slug": "vibeflow",
     "scheme": "vibeflow",
     "version": "1.0.0",
@@ -35,7 +35,7 @@
         "UIBackgroundModes": [
           "audio"
         ],
-        "CFBundleDisplayName": "VibeFlow",
+        "CFBundleDisplayName": "Mynah",
         "NSMicrophoneUsageDescription": "VibeFlow uses the microphone to turn your voice into text on-device.",
         "NSSpeechRecognitionUsageDescription": "VibeFlow uses on-device speech recognition so your voice never leaves your phone.",
         "NSPhotoLibraryUsageDescription": "VibeFlow does not access your photos. This notice is required by iOS because a bundled system component links Apple's Photos framework; no photo data is ever read or uploaded.",

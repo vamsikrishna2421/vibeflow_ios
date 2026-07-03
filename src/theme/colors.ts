@@ -1,5 +1,5 @@
 /**
- * VibeFlow design tokens — one rhythm, one accent, adaptive palette.
+ * Mynah design tokens — one rhythm, one accent, adaptive palette.
  *
  * Theme resolution happens ONCE at JS launch (styles are created at module load,
  * so a theme change applies via an instant JS reload — Settings → Appearance):

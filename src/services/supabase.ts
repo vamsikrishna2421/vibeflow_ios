@@ -1,5 +1,5 @@
 /**
- * VibeFlow's managed backend (same Supabase project the Android app uses — one
+ * Mynah's managed backend (same Supabase project the Android app uses — one
  * user base, one quota, both platforms). The URL + anon key are publishable;
  * real authority is the signed-in user's JWT. The OpenAI key lives ONLY server-side.
  */

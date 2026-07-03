@@ -1,6 +1,6 @@
 /**
  * About — the quiet, premium credits + trust screen. Tells people what version
- * they're on, that recognition runs on-device, and how VibeFlow handles their
+ * they're on, that recognition runs on-device, and how Mynah handles their
  * words (it doesn't — nothing leaves the phone). Plus the standard links Apple
  * expects: privacy policy, support, and a rating prompt.
  */
@@ -35,8 +35,8 @@ export function AboutScreen() {
       {/* Brand */}
       <View style={styles.brand}>
         <View style={styles.wordmarkRow}>
-          <Text style={styles.wordmark}>Vibe</Text>
-          <Text style={[styles.wordmark, { color: Colors.brand }]}>Flow</Text>
+          <Text style={styles.wordmark}>My</Text>
+          <Text style={[styles.wordmark, { color: Colors.brand }]}>nah</Text>
         </View>
         <Text style={styles.tagline}>Speak. We’ll write it, beautifully.</Text>
       </View>
@@ -65,7 +65,7 @@ export function AboutScreen() {
           intelligence (suggestions, autocorrect, learning) is 100% on-device — what you
           type is never collected. Full Access is used only so the keyboard and app can
           talk through a private App Group on your phone. Optional AI polish sends just
-          that dictation's text to VibeFlow's secure cloud — and nothing else, ever.
+          that dictation's text to Mynah's secure cloud — and nothing else, ever.
         </Text>
       </Card>
 
@@ -93,7 +93,7 @@ export function AboutScreen() {
         <View style={styles.linkRow}>
           <NavRow
             icon="star-outline"
-            label="Rate VibeFlow"
+            label="Rate Mynah"
             subtitle="Tell others on the App Store"
             onPress={() => openURL('https://apps.apple.com/')}
           />

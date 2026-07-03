@@ -1,7 +1,7 @@
 /**
  * Bundle-id → URL-scheme map for the "Return to <app>" button on the bootstrap
  * screen. iOS has no public "switch back" API — but opening the source app's URL
- * scheme gets a one-tap system confirm ("VibeFlow wants to open WhatsApp"), which
+ * scheme gets a one-tap system confirm ("Mynah wants to open WhatsApp"), which
  * is exactly how Wispr Flow does its redirect-back. Unknown hosts fall back to the
  * "tap ‹ back top-left" instruction.
  */

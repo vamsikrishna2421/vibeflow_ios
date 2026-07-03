@@ -62,7 +62,7 @@ export function KeyboardSetupScreen() {
           </View>
           <Text style={[Type.title, { fontSize: 22, marginTop: 10 }]}>You're all set 🎉</Text>
           <Text style={[Type.bodySoft, { textAlign: 'center', marginTop: 6 }]}>
-            The VibeFlow keyboard is enabled with Full Access. Tap the 🌐 globe in any app to switch
+            The Mynah keyboard is enabled with Full Access. Tap the 🌐 globe in any app to switch
             to it, then tap the mic to dictate.
           </Text>
           <PrimaryButton label="Done" icon="checkmark" onPress={pop} style={{ marginTop: 18 }} />
@@ -72,15 +72,15 @@ export function KeyboardSetupScreen() {
           <StepRow
             index={1}
             done={installed}
-            title="Add the VibeFlow keyboard"
-            subtitle="Settings → General → Keyboard → Keyboards → Add New Keyboard → VibeFlow"
+            title="Add the Mynah keyboard"
+            subtitle="Settings → General → Keyboard → Keyboards → Add New Keyboard → Mynah"
           />
           <StepRow
             index={2}
             done={fullAccess}
             active={installed}
             title="Turn on Allow Full Access"
-            subtitle="Tap VibeFlow in that list → toggle Allow Full Access → Allow. This lets the mic open VibeFlow to dictate."
+            subtitle="Tap Mynah in that list → toggle Allow Full Access → Allow. This lets the mic open Mynah to dictate."
           />
 
           <PrimaryButton
@@ -90,18 +90,18 @@ export function KeyboardSetupScreen() {
             style={{ marginTop: 20 }}
           />
 
-          {/* Verify: typing here with the VibeFlow keyboard makes the extension run,
+          {/* Verify: typing here with the Mynah keyboard makes the extension run,
               which reports its state back so the checks above update. */}
           <Text style={[Type.caption, { marginTop: 26 }]}>VERIFY</Text>
           <Card style={{ marginTop: 8 }}>
             <Text style={[Type.bodySoft, { marginBottom: 10 }]}>
-              Tap below, switch to the VibeFlow keyboard with the 🌐 globe key, and type a letter —
+              Tap below, switch to the Mynah keyboard with the 🌐 globe key, and type a letter —
               the checkmarks above will light up automatically.
             </Text>
             <TextInput
               value={probe}
               onChangeText={setProbe}
-              placeholder="Type here with VibeFlow…"
+              placeholder="Type here with Mynah…"
               placeholderTextColor={Colors.inkFaint}
               autoCapitalize="none"
               autoCorrect={false}

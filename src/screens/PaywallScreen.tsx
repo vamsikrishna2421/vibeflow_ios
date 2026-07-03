@@ -1,5 +1,5 @@
 /**
- * VibeFlow Pro — the premium upsell. A brand-accent hero, the feature list,
+ * Mynah Pro — the premium upsell. A brand-accent hero, the feature list,
  * and a two-plan selector backed by RevenueCat.
  *
  * RevenueCat may be unconfigured at dev time (no API key / native module not
@@ -165,7 +165,7 @@ export function PaywallScreen() {
 
     // Placeholder mode: nothing to buy — be honest, don't fake it.
     if (!selected.pkg) {
-      Alert.alert('VibeFlow Pro', 'Subscriptions are enabled in the production build.');
+      Alert.alert('Mynah Pro', 'Subscriptions are enabled in the production build.');
       return;
     }
 
@@ -197,7 +197,7 @@ export function PaywallScreen() {
       if (Object.keys(active).length > 0) {
         setPremium(true);
         haptic.success();
-        Alert.alert('Welcome back', 'Your VibeFlow Pro subscription has been restored.');
+        Alert.alert('Welcome back', 'Your Mynah Pro subscription has been restored.');
         pop();
       } else {
         Alert.alert('Nothing to restore', 'We couldn’t find an active subscription on this account.');
@@ -211,14 +211,14 @@ export function PaywallScreen() {
   };
 
   return (
-    <Screen title="VibeFlow Pro" onBack={pop}>
+    <Screen title="Mynah Pro" onBack={pop}>
       {/* Hero */}
       <View style={styles.hero}>
         <View style={styles.heroIcon}>
           <Ionicons name="sparkles" size={30} color="#fff" />
         </View>
         <Text style={styles.heroTitle}>Go Pro</Text>
-        <Text style={styles.heroSubtitle}>Unlock the full VibeFlow experience.</Text>
+        <Text style={styles.heroSubtitle}>Unlock the full Mynah experience.</Text>
       </View>
 
       {premium ? (
@@ -329,7 +329,7 @@ function ProActiveCard({ onDone }: { onDone: () => void }) {
         </View>
         <Text style={[Type.title, { fontSize: 22, marginTop: 12 }]}>You’re Pro 🎉</Text>
         <Text style={[Type.bodySoft, { textAlign: 'center', marginTop: 6 }]}>
-          Every premium feature is unlocked. Thank you for supporting VibeFlow!
+          Every premium feature is unlocked. Thank you for supporting Mynah!
         </Text>
       </Card>
       <PrimaryButton label="Done" icon="checkmark" onPress={onDone} style={{ marginTop: 18 }} />

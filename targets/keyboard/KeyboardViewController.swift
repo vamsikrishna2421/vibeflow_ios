@@ -603,7 +603,7 @@ final class KeyboardViewController: UIInputViewController {
             self.rebuildKeys()
         }, for: .touchUpInside)
 
-        let space = specialKey(title: "VibeFlow")
+        let space = specialKey(title: "Mynah")
         space.baseColor = keyColor
         space.pressedColor = keyPressed
         space.setTitleColor(faintInk, for: .normal)

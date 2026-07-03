@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>VibeFlow</string>
+	<string>Mynah</string>
 	<key>CFBundleName</key>
 	<string>VibeFlowKeyboard</string>
 	<key>NSExtension</key>
