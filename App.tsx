@@ -10,6 +10,8 @@ import { StoreProvider } from '@/store';
 import { setItem } from '@/store/appGroup';
 import { AnimatedSplash } from '@/ui/AnimatedSplash';
 import { UpdateBanner } from '@/ui/UpdateBanner';
+import { checkProEntitlement, configureRevenueCat, onProChange } from '@/services/revenuecat';
+import { useStore } from '@/store';
 
 import { flowSessionActive } from './modules/vibeflow-flowsession';
 import { Colors, isLight } from '@/theme/colors';
@@ -30,6 +32,8 @@ export default function App() {
               <StatusBar style={isLight ? "dark" : "light"} />
               <DeepLinkBridge />
               <StaleSessionGuard />
+            <RevenueCatInit />
+            <EntitlementSync />
               <RootNavigator />
               <UpdateBanner />
             </AnimatedSplash>
@@ -46,6 +50,25 @@ export default function App() {
  * app (mic turns red, nothing listens). On every launch, reconcile the flag with
  * the module's real in-process state.
  */
+function RevenueCatInit() {
+  useEffect(() => {
+    configureRevenueCat();
+  }, []);
+  return null;
+}
+
+/** Keep the app's `premium` flag in sync with the real RevenueCat entitlement. */
+function EntitlementSync() {
+  const { setPremium } = useStore();
+  useEffect(() => {
+    let alive = true;
+    checkProEntitlement().then((pro) => alive && setPremium(pro));
+    const off = onProChange((pro) => setPremium(pro));
+    return () => { alive = false; off(); };
+  }, [setPremium]);
+  return null;
+}
+
 function StaleSessionGuard() {
   useEffect(() => {
     if (!flowSessionActive()) setItem('flow_session_active', 'false');
