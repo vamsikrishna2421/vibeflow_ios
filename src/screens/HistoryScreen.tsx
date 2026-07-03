@@ -188,7 +188,7 @@ export function HistoryScreen() {
     if (polishingId) return;
     setPolishingId(item.id);
     haptic.tap();
-    const r = await polish(item.text);
+    const r = await polish(item.text, 'structured');
     setPolishingId(null);
     if (r.ok && r.text) {
       editDictation(item.id, r.text);

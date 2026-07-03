@@ -210,30 +210,22 @@ public class VibeflowFlowSessionModule: Module {
       return
     }
 
-    // AI polish requested? Hand the text to JS and let IT deliver to the keyboard
-    // (after the polish round-trip). Fallback: if JS hasn't delivered in 8s, insert
-    // the raw text so a network hiccup never eats a dictation.
-    if group?.string(forKey: "flow_polish") == "true" {
-      setStatus("processing")
-      sendEvent("utteranceFinal", ["text": text])
-      let raw = text
-      DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
-        guard let self else { return }
-        if self.group?.string(forKey: "kbd_flow_status") == "processing" {
-          self.group?.set(raw, forKey: "latest_dictation")
-          self.group?.set(String(Date().timeIntervalSince1970 * 1000), forKey: "latest_dictation_ts")
-          self.setStatus("inserted")
-          Self.post(Self.resultName)
-        }
-      }
-      return
-    }
-
-    group?.set(text, forKey: "latest_dictation")
-    group?.set(String(Date().timeIntervalSince1970 * 1000), forKey: "latest_dictation_ts")
-    setStatus("inserted")
-    Self.post(Self.resultName)
+    // Always defer delivery to JS: it runs the local text pipeline (the Android
+    // TextCuration port — spoken punctuation, fillers, caps… free and instant) and
+    // optionally the AI structuring pass, then writes + pings the keyboard.
+    // Fallback: if JS hasn't delivered in 8s, insert the raw text so nothing is lost.
+    setStatus("processing")
     sendEvent("utteranceFinal", ["text": text])
+    let raw = text
+    DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+      guard let self else { return }
+      if self.group?.string(forKey: "kbd_flow_status") == "processing" {
+        self.group?.set(raw, forKey: "latest_dictation")
+        self.group?.set(String(Date().timeIntervalSince1970 * 1000), forKey: "latest_dictation_ts")
+        self.setStatus("inserted")
+        Self.post(Self.resultName)
+      }
+    }
   }
 
   // MARK: - Plumbing

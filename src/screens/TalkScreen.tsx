@@ -98,6 +98,10 @@ export function TalkScreen() {
     () => buildPipelineConfig(settings, snippets, vocabulary, corrections),
     [settings, snippets, vocabulary, corrections],
   );
+  const configRef = useRef(config);
+  configRef.current = config;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   const flashToast = useCallback((msg: string) => {
     setToast(msg);
@@ -139,7 +143,7 @@ export function TalkScreen() {
       }
       if (settings.smartFormat && signedInRef.current) {
         flashToast('✨ Polishing…');
-        polish(next.trim()).then((r) => {
+        polish(next.trim(), 'auto').then((r) => {
           if (r.ok && r.text) {
             setDraft(r.text);
             flashToast(r.isPro ? '✨ Polished' : `✨ Polished — ${r.remaining ?? '?'} free left this week`);
@@ -195,14 +199,25 @@ export function TalkScreen() {
   useEffect(() => {
     const finalSub = addUtteranceFinalListener(({ text }) => {
       (async () => {
-        // Engine v2 defers the keyboard hand-off to us when flow_polish is on —
-        // older engines have already inserted raw text, so we must not re-ping.
+        // Engine v2 defers delivery to us — older engines already inserted raw
+        // text themselves, so we must not re-ping on them.
         const engineDefers = getItem('flow_engine_v') === '2';
-        const wantsPolish = smartRef.current && signedInRef.current;
-        let finalText = text;
-        if (engineDefers && wantsPolish) {
-          updateLiveActivity('Polishing…', '');
-          const r = await polish(text, 'message');
+
+        // 1. LOCAL pipeline, always (the Android TextCuration port): spoken
+        //    punctuation, fillers, repeats, caps, corrections, vocabulary —
+        //    deterministic, instant, free. Voice commands don't apply here.
+        const outcome = runDictation(
+          text,
+          { ...settingsRef.current, voiceCommands: false },
+          configRef.current,
+        );
+        let finalText = outcome.kind === 'text' && outcome.text ? outcome.text : text;
+
+        // 2. Optional AI pass — for STRUCTURE (server 'auto' style shapes the text
+        //    to its destination), not for commas.
+        if (engineDefers && smartRef.current && signedInRef.current) {
+          updateLiveActivity('Structuring…', '');
+          const r = await polish(finalText, 'auto');
           if (r.ok && r.text) {
             finalText = r.text;
             updateLiveActivity(
@@ -210,11 +225,15 @@ export function TalkScreen() {
               finalText,
             );
           } else {
-            updateLiveActivity('Inserted (unpolished)', finalText);
+            updateLiveActivity('Inserted (local formatting)', finalText);
           }
-          // If the polish outlived the native 8s fallback, the raw text was already
-          // inserted — delivering again would double-insert. History still gets
-          // the polished version either way.
+        } else {
+          updateLiveActivity('Inserted ✓', finalText);
+        }
+
+        // 3. Deliver to the keyboard (engine v2 only; guard against the native
+        //    8s raw fallback having already delivered).
+        if (engineDefers) {
           if (getItem('kbd_flow_status') === 'processing') {
             setItem('latest_dictation', finalText);
             setItem('latest_dictation_ts', String(Date.now()));
@@ -222,8 +241,6 @@ export function TalkScreen() {
             notifyResultReady();
             notifyFlowStatus();
           }
-        } else {
-          updateLiveActivity('Inserted ✓', finalText);
         }
         addDictationRef.current(finalText);
       })();
