@@ -47,9 +47,10 @@ export function AnimatedSplash({ children }: { children: React.ReactNode }) {
         >
           <Animated.View style={{ opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0, 0.55] }) }}>
             <LinearGradient
-              colors={['rgba(124,92,255,0.55)', 'rgba(124,92,255,0)']}
+              colors={['rgba(124,92,255,0.5)', 'rgba(124,92,255,0.12)', 'rgba(124,92,255,0)']}
+              locations={[0, 0.55, 1]}
               style={styles.glow}
-              start={{ x: 0.5, y: 0.5 }}
+              start={{ x: 0.5, y: 0 }}
               end={{ x: 0.5, y: 1 }}
             />
           </Animated.View>
@@ -85,12 +86,13 @@ const styles = StyleSheet.create({
   glow: {
     position: 'absolute',
     alignSelf: 'center',
-    width: 340,
-    height: 340,
-    borderRadius: 170,
-    top: -170,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    top: -150,
+    opacity: 0.9,
   },
-  logo: { width: 180, height: 180 },
+  logo: { width: 168, height: 168, borderRadius: 38 },
   wordmark: {
     color: '#FFFFFF',
     fontSize: 34,
