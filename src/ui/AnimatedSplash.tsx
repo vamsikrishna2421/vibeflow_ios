@@ -4,7 +4,6 @@
  * settles, the wordmark rises in, and the whole thing melts into the app.
  * Pure JS/Animated → ships and iterates over OTA.
  */
-import { LinearGradient } from 'expo-linear-gradient';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, StyleSheet, Text, View } from 'react-native';
@@ -45,15 +44,6 @@ export function AnimatedSplash({ children }: { children: React.ReactNode }) {
           onLayout={() => SplashScreen.hideAsync().catch(() => {})}
           pointerEvents="none"
         >
-          <Animated.View style={{ opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0, 0.55] }) }}>
-            <LinearGradient
-              colors={['rgba(124,92,255,0.5)', 'rgba(124,92,255,0.12)', 'rgba(124,92,255,0)']}
-              locations={[0, 0.55, 1]}
-              style={styles.glow}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-            />
-          </Animated.View>
           <Animated.Image
             source={LOGO}
             style={[styles.logo, { transform: [{ scale: logoScale }] }]}
@@ -82,15 +72,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#0B0A14', // must match the native splash background exactly
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  glow: {
-    position: 'absolute',
-    alignSelf: 'center',
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    top: -150,
-    opacity: 0.9,
   },
   logo: { width: 168, height: 168, borderRadius: 38 },
   wordmark: {
