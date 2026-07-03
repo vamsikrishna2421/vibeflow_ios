@@ -49,7 +49,7 @@
       "package": "com.vibeflow.mobile",
       "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#0B0A14",
+        "backgroundColor": "#141527",
         "foregroundImage": "./assets/adaptive-icon.png"
       },
       "permissions": [
