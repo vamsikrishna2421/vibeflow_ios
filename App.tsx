@@ -8,6 +8,7 @@ import { NavProvider, useNav } from '@/navigation/nav';
 import { RootNavigator } from '@/navigation/RootNavigator';
 import { StoreProvider } from '@/store';
 import { setItem } from '@/store/appGroup';
+import { AnimatedSplash } from '@/ui/AnimatedSplash';
 import { UpdateBanner } from '@/ui/UpdateBanner';
 
 import { flowSessionActive } from './modules/vibeflow-flowsession';
@@ -25,11 +26,13 @@ export default function App() {
       <SafeAreaProvider>
         <StoreProvider>
           <NavProvider>
-            <StatusBar style={isLight ? "dark" : "light"} />
-            <DeepLinkBridge />
-            <StaleSessionGuard />
-            <RootNavigator />
-            <UpdateBanner />
+            <AnimatedSplash>
+              <StatusBar style={isLight ? "dark" : "light"} />
+              <DeepLinkBridge />
+              <StaleSessionGuard />
+              <RootNavigator />
+              <UpdateBanner />
+            </AnimatedSplash>
           </NavProvider>
         </StoreProvider>
       </SafeAreaProvider>
