@@ -212,11 +212,16 @@ export function TalkScreen() {
           } else {
             updateLiveActivity('Inserted (unpolished)', finalText);
           }
-          setItem('latest_dictation', finalText);
-          setItem('latest_dictation_ts', String(Date.now()));
-          setItem('kbd_flow_status', 'inserted');
-          notifyResultReady();
-          notifyFlowStatus();
+          // If the polish outlived the native 8s fallback, the raw text was already
+          // inserted — delivering again would double-insert. History still gets
+          // the polished version either way.
+          if (getItem('kbd_flow_status') === 'processing') {
+            setItem('latest_dictation', finalText);
+            setItem('latest_dictation_ts', String(Date.now()));
+            setItem('kbd_flow_status', 'inserted');
+            notifyResultReady();
+            notifyFlowStatus();
+          }
         } else {
           updateLiveActivity('Inserted ✓', finalText);
         }
