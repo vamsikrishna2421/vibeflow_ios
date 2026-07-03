@@ -44,6 +44,7 @@ function uid(): number {
 type Action =
   | { type: 'HYDRATE'; payload: PersistedState }
   | { type: 'ADD_DICTATION'; text: string }
+  | { type: 'EDIT_DICTATION'; id: number; text: string }
   | { type: 'TOGGLE_PIN'; id: number }
   | { type: 'DELETE_DICTATION'; id: number }
   | { type: 'CLEAR_HISTORY' }
@@ -74,6 +75,13 @@ function reducer(state: State, action: Action): State {
       return { ...state, history: [entry, ...state.history].slice(0, HISTORY_CAP) };
     }
 
+    case 'EDIT_DICTATION':
+      return {
+        ...state,
+        history: state.history.map((d) =>
+          d.id === action.id ? { ...d, text: action.text } : d,
+        ),
+      };
     case 'TOGGLE_PIN':
       return {
         ...state,
@@ -150,6 +158,7 @@ function reducer(state: State, action: Action): State {
 
 export interface StoreActions {
   addDictation(text: string): void;
+  editDictation(id: number, text: string): void;
   togglePin(id: number): void;
   deleteDictation(id: number): void;
   clearHistory(): void;
@@ -249,6 +258,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const actions = useMemo<StoreActions>(
     () => ({
       addDictation: (text) => dispatch({ type: 'ADD_DICTATION', text }),
+      editDictation: (id, text) => dispatch({ type: 'EDIT_DICTATION', id, text }),
       togglePin: (id) => dispatch({ type: 'TOGGLE_PIN', id }),
       deleteDictation: (id) => dispatch({ type: 'DELETE_DICTATION', id }),
       clearHistory: () => dispatch({ type: 'CLEAR_HISTORY' }),

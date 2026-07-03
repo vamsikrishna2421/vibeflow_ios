@@ -10,6 +10,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+import { polish } from '@/services/polish';
 import { Dictation, useStore } from '@/store';
 import { Colors, Radius } from '@/theme/colors';
 import {
@@ -176,9 +177,34 @@ const statStyles = StyleSheet.create({
 });
 
 export function HistoryScreen() {
-  const { history, togglePin, deleteDictation, clearHistory } = useStore();
+  const { history, togglePin, deleteDictation, clearHistory, editDictation } = useStore();
   const [query, setQuery] = useState('');
   const [toast, setToast] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [polishingId, setPolishingId] = useState<number | null>(null);
+
+  // Manual ✨ polish for any saved dictation (e.g. ones captured before signing in).
+  const onPolish = async (item: Dictation) => {
+    if (polishingId) return;
+    setPolishingId(item.id);
+    haptic.tap();
+    const r = await polish(item.text);
+    setPolishingId(null);
+    if (r.ok && r.text) {
+      editDictation(item.id, r.text);
+      setExpandedId(item.id);
+      haptic.success();
+      setToast(r.isPro ? '✨ Polished' : `✨ Polished — ${r.remaining ?? '?'} free left this week`);
+    } else if (r.error === 'limit_reached') {
+      setToast('Free polishes used up this week — Pro is unlimited');
+    } else if (r.error === 'signed_out') {
+      setToast('Sign in under Settings → Account & AI to polish');
+    } else if (r.error === 'maintenance') {
+      setToast(r.message || 'AI polish is briefly down for maintenance');
+    } else {
+      setToast('Couldn\u2019t polish — check your connection and try again');
+    }
+  };
 
   // Auto-dismiss the inline toast (mirrors the Talk screen pattern).
   useEffect(() => {
@@ -294,8 +320,11 @@ export function HistoryScreen() {
               return (
                 <Pressable
                   key={item.id}
-                  onPress={() => onCopy(item.text)}
-                  accessibilityHint="Tap to copy"
+                  onPress={() => {
+                    haptic.tap();
+                    setExpandedId(expandedId === item.id ? null : item.id);
+                  }}
+                  accessibilityHint="Tap to expand"
                   style={({ pressed }) => [
                     styles.entry,
                     item.pinned && styles.entryPinned,
@@ -312,13 +341,30 @@ export function HistoryScreen() {
                     {item.pinned ? <Ionicons name="star" size={14} color={Colors.amber} /> : null}
                   </View>
 
-                  <Text style={styles.entryText} numberOfLines={4}>
+                  <Text
+                    style={styles.entryText}
+                    numberOfLines={expandedId === item.id ? undefined : 4}
+                  >
                     {item.text}
                   </Text>
 
                   <View style={styles.entryFooter}>
-                    <Text style={styles.copyHint}>tap card to copy</Text>
+                    <Text style={styles.copyHint}>
+                      {expandedId === item.id ? 'tap to collapse' : 'tap to read all'}
+                    </Text>
                     <View style={styles.entryActions}>
+                      <CircleAction
+                        icon={polishingId === item.id ? 'hourglass-outline' : 'sparkles-outline'}
+                        color={Colors.brand}
+                        label="AI polish"
+                        onPress={() => onPolish(item)}
+                      />
+                      <CircleAction
+                        icon="copy-outline"
+                        color={Colors.inkSoft}
+                        label="Copy"
+                        onPress={() => onCopy(item.text)}
+                      />
                       <CircleAction
                         icon={item.pinned ? 'star' : 'star-outline'}
                         color={item.pinned ? Colors.amber : Colors.inkSoft}

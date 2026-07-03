@@ -31,6 +31,8 @@ import {
   addFlowStatusListener,
   addUtteranceFinalListener,
   flowSessionModuleAvailable,
+  notifyFlowStatus,
+  notifyResultReady,
   reassertFlowSession,
   startFlowSession,
   stopFlowSession,
@@ -56,6 +58,14 @@ export function TalkScreen() {
   const { signedIn } = useAuth();
   const signedInRef = useRef(signedIn);
   signedInRef.current = signedIn;
+  const smartRef = useRef(settings.smartFormat);
+  smartRef.current = settings.smartFormat;
+
+  // Tell the native engine whether flow utterances should wait for an AI polish
+  // (engine v2+ defers the keyboard hand-off to JS when this flag is on).
+  useEffect(() => {
+    setItem('flow_polish', settings.smartFormat && signedIn ? 'true' : 'false');
+  }, [settings.smartFormat, signedIn]);
   const hostApp = hostAppFor(recordHost);
 
   const [draft, setDraft] = useState('');
@@ -184,8 +194,34 @@ export function TalkScreen() {
   addDictationRef.current = addDictation;
   useEffect(() => {
     const finalSub = addUtteranceFinalListener(({ text }) => {
-      addDictationRef.current(text);
-      updateLiveActivity('Inserted ✓', text);
+      (async () => {
+        // Engine v2 defers the keyboard hand-off to us when flow_polish is on —
+        // older engines have already inserted raw text, so we must not re-ping.
+        const engineDefers = getItem('flow_engine_v') === '2';
+        const wantsPolish = smartRef.current && signedInRef.current;
+        let finalText = text;
+        if (engineDefers && wantsPolish) {
+          updateLiveActivity('Polishing…', '');
+          const r = await polish(text, 'message');
+          if (r.ok && r.text) {
+            finalText = r.text;
+            updateLiveActivity(
+              r.isPro ? 'Inserted ✓' : `Inserted ✓ · ${r.remaining ?? '?'} polishes left`,
+              finalText,
+            );
+          } else {
+            updateLiveActivity('Inserted (unpolished)', finalText);
+          }
+          setItem('latest_dictation', finalText);
+          setItem('latest_dictation_ts', String(Date.now()));
+          setItem('kbd_flow_status', 'inserted');
+          notifyResultReady();
+          notifyFlowStatus();
+        } else {
+          updateLiveActivity('Inserted ✓', finalText);
+        }
+        addDictationRef.current(finalText);
+      })();
     });
     const statusSub = addFlowStatusListener(({ status }) => {
       if (status === 'listening') updateLiveActivity('Listening…', '');

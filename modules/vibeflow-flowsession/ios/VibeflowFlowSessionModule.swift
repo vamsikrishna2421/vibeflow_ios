@@ -60,6 +60,9 @@ public class VibeflowFlowSessionModule: Module {
         try self.startEngine()
         self.active = true
         self.setFlag(true)
+        // Engine capability marker: v2 = defers the keyboard hand-off to JS when
+        // the flow_polish flag is set (so dictations can be AI-polished pre-insert).
+        self.group?.set("2", forKey: "flow_engine_v")
         self.setStatus("ready")
         return true
       } catch {
@@ -206,6 +209,26 @@ public class VibeflowFlowSessionModule: Module {
       setStatus("error: Didn’t catch that — tap 🎤 and try again")
       return
     }
+
+    // AI polish requested? Hand the text to JS and let IT deliver to the keyboard
+    // (after the polish round-trip). Fallback: if JS hasn't delivered in 8s, insert
+    // the raw text so a network hiccup never eats a dictation.
+    if group?.string(forKey: "flow_polish") == "true" {
+      setStatus("processing")
+      sendEvent("utteranceFinal", ["text": text])
+      let raw = text
+      DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+        guard let self else { return }
+        if self.group?.string(forKey: "kbd_flow_status") == "processing" {
+          self.group?.set(raw, forKey: "latest_dictation")
+          self.group?.set(String(Date().timeIntervalSince1970 * 1000), forKey: "latest_dictation_ts")
+          self.setStatus("inserted")
+          Self.post(Self.resultName)
+        }
+      }
+      return
+    }
+
     group?.set(text, forKey: "latest_dictation")
     group?.set(String(Date().timeIntervalSince1970 * 1000), forKey: "latest_dictation_ts")
     setStatus("inserted")
