@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useState } from 'react';
 import * as Updates from 'expo-updates';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CurationOptions } from '@/core';
 import { useAuth } from '@/hooks/useAuth';
@@ -43,8 +43,12 @@ export function SettingsScreen() {
     try {
       await fn();
       haptic.success();
-    } catch {
+    } catch (e: any) {
       haptic.warning();
+      // Surface the REAL failure — a silent catch here hid a failed token exchange
+      // behind a successful-looking Apple sheet.
+      const msg = e?.message ?? e?.error_description ?? String(e);
+      if (!/cancell?ed|1001/i.test(msg)) Alert.alert('Sign-in failed', msg);
     } finally {
       setAuthBusy(false);
     }
