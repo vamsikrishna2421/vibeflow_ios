@@ -1,5 +1,5 @@
 /**
- * Mynah design tokens — selectable palette × scheme, resolved ONCE at JS launch.
+ * VibeFlow design tokens — selectable palette × scheme, resolved ONCE at JS launch.
  *
  * Two axes, both persisted in the App Group and applied via an instant JS reload
  * (Settings → Appearance / Theme):
@@ -7,7 +7,7 @@
  *   • palette : color | mono        ("app_palette", default: color)
  *
  * COLOR = the original vibrant brand (purple → blue).
- * MONO  = a black/white/gray world (the Mynah logo look) — with the main mic
+ * MONO  = a black/white/gray world (the VibeFlow logo look) — with the main mic
  *         button kept colourful via `heroMicGradient` as the single deliberate pop.
  */
 import { Appearance } from 'react-native';

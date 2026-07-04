@@ -1,6 +1,6 @@
 /**
  * Vocabulary — the user's custom dictionary. Product names, acronyms, and people
- * whose exact spelling and casing Mynah should always restore when the
+ * whose exact spelling and casing VibeFlow should always restore when the
  * recogniser mishears them (e.g. "github" → "GitHub").
  *
  * A pushed stack screen: add a term up top, then manage the saved set as a
@@ -94,7 +94,7 @@ export function VocabularyScreen() {
             <Ionicons name="sparkles" size={18} color={Colors.brand} />
           </View>
           <Text style={[Type.bodySoft, styles.hintText]}>
-            When the recogniser hears one of these words, Mynah restores its exact spelling and
+            When the recogniser hears one of these words, VibeFlow restores its exact spelling and
             capitalisation. Longer terms win.
           </Text>
         </View>

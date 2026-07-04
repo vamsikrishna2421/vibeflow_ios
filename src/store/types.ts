@@ -1,5 +1,5 @@
 /**
- * App data model — the serialisable shapes that the Mynah app persists and
+ * App data model — the serialisable shapes that the VibeFlow app persists and
  * shares with the native keyboard. Kept dependency-free (only `@/core` types) so
  * it can be imported anywhere, including tests.
  */

@@ -1,5 +1,5 @@
 /**
- * Mynah UI kit — the premium, dark-first building blocks every screen shares,
+ * VibeFlow UI kit — the premium, dark-first building blocks every screen shares,
  * so the app has one consistent rhythm and accent. Pure presentational components
  * built on the design tokens in `@/theme/colors`.
  */

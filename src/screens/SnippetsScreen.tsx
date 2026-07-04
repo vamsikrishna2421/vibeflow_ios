@@ -2,7 +2,7 @@
  * Snippets — say a short trigger, insert a longer expansion. The keyboard reads
  * these from the App Group, so a snippet like "my address" can drop your full
  * mailing address at the cursor. This screen lets you create, edit and delete
- * them with a premium, dark-first feel that matches the rest of Mynah.
+ * them with a premium, dark-first feel that matches the rest of VibeFlow.
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';

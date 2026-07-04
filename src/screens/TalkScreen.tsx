@@ -1,5 +1,5 @@
 /**
- * Talk — the hero. Tap the mic, speak, and Mynah recognises it on-device,
+ * Talk — the hero. Tap the mic, speak, and VibeFlow recognises it on-device,
  * runs the text pipeline (the same rules as Android), and builds a draft you can
  * copy or save. Saving makes it the "latest dictation" the keyboard inserts.
  *
@@ -156,7 +156,7 @@ export function TalkScreen() {
       }
       if (settings.autoCopy) {
         Clipboard.setStringAsync(next.trim()).catch(() => {});
-        flashToast('Copied — open any app and paste, or use the Mynah keyboard');
+        flashToast('Copied — open any app and paste, or use the VibeFlow keyboard');
       }
     },
     // applyCommand defined below is stable via setDraft updater
@@ -272,7 +272,7 @@ export function TalkScreen() {
   // Keyboard deep-link (vibeflow://record) asks us to start immediately, and marks
   // this session as keyboard-initiated so we auto-save the result for the keyboard.
   // Keyboard mic → bootstrap hop. The product rule: you NEVER dictate inside
-  // Mynah. This visit only (a) gets mic/speech permission, (b) turns the Flow
+  // VibeFlow. This visit only (a) gets mic/speech permission, (b) turns the Flow
   // Session on, then tells you to go straight back — every utterance (including
   // the first) is spoken inside the host app via the keyboard mic. There is NO
   // record-here fallback anymore; if the engine can't start we say so and offer
@@ -363,7 +363,7 @@ export function TalkScreen() {
   const onSave = () => {
     addDictation(draft.trim());
     if (settings.haptics) haptic.success();
-    flashToast('Saved — tap "Insert latest" in the Mynah keyboard');
+    flashToast('Saved — tap "Insert latest" in the VibeFlow keyboard');
     setDraft('');
   };
   const onClear = () => {
@@ -376,15 +376,15 @@ export function TalkScreen() {
       <AuroraBackdrop />
       <View style={styles.headerRow}>
         <View style={styles.wordmarkRow}>
-          <Text style={styles.wordmark}>My</Text>
-          <Text style={[styles.wordmark, { color: Colors.brand }]}>nah</Text>
+          <Text style={styles.wordmark}>Vibe</Text>
+          <Text style={[styles.wordmark, { color: Colors.brand }]}>Flow</Text>
         </View>
         <Badge label={settings.onDeviceOnly ? 'ON-DEVICE' : 'CLOUD'} tone={settings.onDeviceOnly ? 'brand' : 'amber'} />
       </View>
 
       {totalWords > 0 ? (
         <Text style={styles.wordStat}>
-          🎙 {totalWords.toLocaleString()} words spoken with Mynah
+          🎙 {totalWords.toLocaleString()} words spoken with VibeFlow
         </Text>
       ) : null}
 
@@ -394,7 +394,7 @@ export function TalkScreen() {
           <Text style={styles.sessionText}>
             {liveActivityAvailable()
               ? 'Flow Session live — dictate from the keyboard mic, no switching'
-              : 'Flow Session on. For the Dynamic Island pill, enable Live Activities: iOS Settings → Mynah'}
+              : 'Flow Session on. For the Dynamic Island pill, enable Live Activities: iOS Settings → VibeFlow'}
           </Text>
           <GhostButton label="End" tone="danger" onPress={endSession} />
         </View>
@@ -459,7 +459,7 @@ export function TalkScreen() {
               <Text style={styles.bootTitle}>Couldn’t start the session</Text>
               <Text style={styles.bootSub}>
                 engine {flowSessionModuleAvailable() ? '✓ loaded' : '✗ missing (update the app in TestFlight)'} ·
-                island {liveActivityAvailable() ? '✓' : '✗ (Settings → Mynah → Live Activities)'}
+                island {liveActivityAvailable() ? '✓' : '✗ (Settings → VibeFlow → Live Activities)'}
               </Text>
               <Pressable onPress={tryStartSession} style={({ pressed }) => [styles.saveBtn, { alignSelf: 'stretch' }, pressed && { opacity: 0.9 }]}>
                 <LinearGradient colors={[...micGradient]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.saveGrad}>
@@ -521,7 +521,7 @@ export function TalkScreen() {
       ) : (
         <View style={styles.steps}>
           <Step n="1" t="Dictate here — your words are formatted instantly." />
-          <Step n="2" t="Switch to the Mynah keyboard (🌐 globe key) in any app." />
+          <Step n="2" t="Switch to the VibeFlow keyboard (🌐 globe key) in any app." />
           <Step n="3" t="Tap “Insert latest” to drop them at the cursor." />
         </View>
       )}

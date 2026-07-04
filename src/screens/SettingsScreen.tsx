@@ -1,5 +1,5 @@
 /**
- * Settings — the control room. Every knob Mynah exposes lives here, grouped
+ * Settings — the control room. Every knob VibeFlow exposes lives here, grouped
  * into calm, scannable cards (Recognition, Formatting, Output, Smart formatting,
  * Personalise, Keyboard, About) so the long list never feels heavy.
  *
@@ -113,7 +113,7 @@ export function SettingsScreen() {
   };
 
   return (
-    <Screen title="Settings" subtitle="Tune how Mynah listens and writes.">
+    <Screen title="Settings" subtitle="Tune how VibeFlow listens and writes.">
       {/* Pro upsell — only when the user hasn't unlocked it yet. */}
       {!premium ? (
         <Pressable onPress={() => push('paywall')} style={({ pressed }) => [pressed && { opacity: 0.9 }]}>
@@ -129,7 +129,7 @@ export function SettingsScreen() {
                   <Ionicons name="sparkles" size={20} color="#3A2A00" />
                 </View>
                 <View style={styles.bannerText}>
-                  <Text style={styles.goldTitle}>Unlock Mynah Pro</Text>
+                  <Text style={styles.goldTitle}>Unlock VibeFlow Pro</Text>
                   <Text style={styles.goldSub}>Smart AI formatting, unlimited snippets &amp; more.</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color="#E8C96A" />
@@ -163,7 +163,7 @@ export function SettingsScreen() {
           <>
             <Text style={Type.bodySoft}>
               Sign in to unlock 50 free AI polishes a week — grammar, punctuation and
-              formatting, powered by Mynah's cloud.
+              formatting, powered by VibeFlow's cloud.
             </Text>
             <Pressable disabled={authBusy} onPress={runAuth(signInWithApple)} style={({ pressed }) => [styles.appleBtn, pressed && { opacity: 0.85 }]}>
               <Ionicons name="logo-apple" size={18} color="#000" />
@@ -409,7 +409,7 @@ export function SettingsScreen() {
           icon="keypad-outline"
           tint="#39D98A"
           label="Set up the keyboard"
-          subtitle="Guided: add Mynah + Allow Full Access"
+          subtitle="Guided: add VibeFlow + Allow Full Access"
           onPress={() => push('keyboardSetup')}
         />
       </Card>
@@ -420,7 +420,7 @@ export function SettingsScreen() {
         <NavRow
           icon="information-circle-outline"
           tint="#9AA5B1"
-          label="About Mynah"
+          label="About VibeFlow"
           onPress={() => push('about')}
         />
       </Card>
@@ -437,7 +437,7 @@ export function SettingsScreen() {
             <View style={styles.sheetHandle} />
             <Text style={[Type.title, styles.sheetTitle]}>Language</Text>
             <Text style={[Type.bodySoft, { marginBottom: 6 }]}>
-              Pick the language Mynah recognises on-device.
+              Pick the language VibeFlow recognises on-device.
             </Text>
             <ScrollView style={styles.sheetList} showsVerticalScrollIndicator={false}>
               {LANGUAGES.map((lang) => {

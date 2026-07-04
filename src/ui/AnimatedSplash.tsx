@@ -57,7 +57,7 @@ export function AnimatedSplash({ children }: { children: React.ReactNode }) {
             }}
           >
             <Text style={styles.wordmark}>
-              My<Text style={{ color: Colors.brand }}>nah</Text>
+              Vibe<Text style={{ color: Colors.brand }}>Flow</Text>
             </Text>
             <Text style={styles.tagline}>speak it. send it.</Text>
           </Animated.View>

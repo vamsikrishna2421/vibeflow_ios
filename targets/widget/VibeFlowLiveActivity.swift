@@ -17,7 +17,7 @@ struct VibeFlowLiveActivity: Widget {
                     Image(systemName: "waveform").foregroundColor(brand)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Mynah").font(.headline).foregroundColor(.white)
+                    Text("VibeFlow").font(.headline).foregroundColor(.white)
                     Text(context.state.status).font(.caption).foregroundColor(.white.opacity(0.7))
                 }
                 Spacer()
