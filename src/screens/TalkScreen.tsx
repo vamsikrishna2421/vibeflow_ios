@@ -12,7 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
 import * as Updates from 'expo-updates';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, AppState, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, AppState, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
@@ -23,7 +23,7 @@ import { useNav } from '@/navigation/nav';
 import { buildPipelineConfig, runDictation, useStore } from '@/store';
 import { getItem, setItem } from '@/store/appGroup';
 import { hostAppFor } from '@/store/hostApps';
-import { polish } from '@/services/polish';
+import { polish, PolishStyle } from '@/services/polish';
 import { useAuth } from '@/hooks/useAuth';
 import { Colors, Radius, micGradient, heroMicGradient } from '@/theme/colors';
 import { Badge, GhostButton, haptic } from '@/ui/kit';
@@ -355,6 +355,38 @@ export function TalkScreen() {
   const live = dictation.transcript;
   const showDraft = draft.length > 0;
 
+  // Reformat: reshape the current draft into a different tone/format on demand —
+  // the Wispr/Aqua-style "make it an email / notes / casual" power move, reusing the
+  // server polish styles. Requires a session (managed AI); costs one polish credit.
+  const [reformatting, setReformatting] = useState<PolishStyle | null>(null);
+  const REFORMATS: { style: PolishStyle; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+    { style: 'cleanup', label: 'Clean', icon: 'sparkles-outline' },
+    { style: 'email', label: 'Email', icon: 'mail-outline' },
+    { style: 'message', label: 'Casual', icon: 'chatbubble-ellipses-outline' },
+    { style: 'notes', label: 'Notes', icon: 'list-outline' },
+  ];
+  const reformat = async (style: PolishStyle) => {
+    const text = draftRef.current.trim();
+    if (!text || reformatting) return;
+    if (!signedInRef.current) {
+      flashToast('Sign in (Settings) to reformat with AI');
+      return;
+    }
+    setReformatting(style);
+    if (settings.haptics) haptic.tap();
+    const r = await polish(text, style);
+    setReformatting(null);
+    if (r.ok && r.text) {
+      setDraft(r.text);
+      if (settings.autoCopy) Clipboard.setStringAsync(r.text).catch(() => {});
+      flashToast(r.isPro ? '✨ Reformatted' : `✨ Reformatted — ${r.remaining ?? '?'} free left`);
+    } else if (r.error === 'limit_reached') {
+      flashToast('Free polishes used up this week — Pro is unlimited');
+    } else {
+      flashToast('Could not reformat — try again');
+    }
+  };
+
   const onCopy = async () => {
     await Clipboard.setStringAsync(draft.trim());
     if (settings.haptics) haptic.success();
@@ -502,6 +534,28 @@ export function TalkScreen() {
         <View style={styles.draftCard}>
           <Text style={styles.draftLabel}>DRAFT</Text>
           <Text style={styles.draftText}>{draft.trim()}</Text>
+          {signedIn ? (
+            <>
+              <Text style={styles.reformatLabel}>REFORMAT AS</Text>
+              <View style={styles.reformatRow}>
+                {REFORMATS.map((rf) => (
+                  <Pressable
+                    key={rf.style}
+                    onPress={() => reformat(rf.style)}
+                    disabled={!!reformatting}
+                    style={({ pressed }) => [styles.reformatChip, pressed && { opacity: 0.7 }]}
+                  >
+                    {reformatting === rf.style ? (
+                      <ActivityIndicator size="small" color={Colors.brand} />
+                    ) : (
+                      <Ionicons name={rf.icon} size={14} color={Colors.inkSoft} />
+                    )}
+                    <Text style={styles.reformatChipText}>{rf.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          ) : null}
           <View style={styles.draftActions}>
             <GhostButton label="Copy" icon="copy-outline" onPress={onCopy} style={styles.flexBtn} />
             <GhostButton label="Clear" icon="trash-outline" tone="danger" onPress={onClear} style={styles.flexBtn} />
@@ -909,6 +963,14 @@ const styles = StyleSheet.create({
   draftLabel: { color: Colors.inkFaint, fontSize: 11, fontWeight: '800', letterSpacing: 0.6 },
   draftText: { color: Colors.ink, fontSize: 16, lineHeight: 23, marginTop: 8 },
   draftActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  reformatLabel: { color: Colors.inkFaint, fontSize: 11, fontWeight: '800', letterSpacing: 0.6, marginTop: 16 },
+  reformatRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  reformatChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, height: 34,
+    borderRadius: 10, backgroundColor: Colors.chipBg,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.outline,
+  },
+  reformatChipText: { color: Colors.inkSoft, fontSize: 13, fontWeight: '600' },
   flexBtn: { flex: 1 },
   saveBtn: { marginTop: 10 },
   saveGrad: {
