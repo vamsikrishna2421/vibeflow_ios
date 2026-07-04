@@ -10,8 +10,10 @@ Legend: value ★→★★★ · effort L/M/H · **OTA** (JS &/or server) vs **N
 - ✅ **Reformat as Clean/Email/Casual/Notes** (Talk draft) — Wispr/Aqua-style tone/format switching, reusing the server polish styles. **OTA.** (Notes now yields the Facts/To-dos/Follow-ups/Open-questions digest — server prompt tuned + deployed.)
 - ✅ **First-run personalized demo** — sign-in → profile → permissions → read → one-voice-note-three-ways (Email/Casual/Notes) with recognizer priming (contextualStrings) + vocabulary seeding. **OTA.**
 
+## Also shipped this session
+- ✅ **Natural-language edits** ("make it shorter", "add a greeting", "bullet it") — Aqua's headline differentiator. "Tell VibeFlow how to change it…" field under the Talk draft → server `instruct` style (polish v11). **OTA.**
+
 ## Top recommendations (build next — all OTA)
-1. **Natural-language edits** ("make it shorter", "more formal", "turn into bullets", "add a greeting"). ★★★ · M · OTA (client UI + 1 server-prompt `instruct` style that takes the user's instruction as input). This is **Aqua Voice's headline differentiator** and we're one prompt + a text field away from it. After a draft: a small "Tell VibeFlow how to change it…" input (or a voice command) → `polish(draft, 'instruct', {instruction})`.
 2. **Reformat/re-polish from History** ★★ · L–M · OTA. Apply the same style chips to any saved dictation (long-press → Reformat as…). Pure reuse of the new `reformat()`.
 3. **Live "N free polishes left this week" readout** in Settings + the Talk toast. ★★ · M · OTA. Parity with Android (it reads the profile via RLS, no quota spent); drives Pro. iOS Settings currently shows static "50 free / week". Needs a lightweight profile-quota read (or persist last-known `remaining` from polish responses as a v1).
 4. **"✨ Enhance / try harder" one-tap re-polish** ★ · L · OTA. Mostly covered by Reformat › Clean; a dedicated affordance is a small add.
