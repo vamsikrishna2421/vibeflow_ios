@@ -21,12 +21,12 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.vibeflow.mobile",
+      "bundleIdentifier": "com.vibeflow.app",
       "buildNumber": "1.0.20",
       "appleTeamId": "33348G2388",
       "entitlements": {
         "com.apple.security.application-groups": [
-          "group.com.vibeflow.mobile"
+          "group.com.vibeflow.app"
         ]
       },
       "infoPlist": {
@@ -103,11 +103,11 @@
             "ios": {
               "appExtensions": [
                 {
-                  "bundleIdentifier": "com.vibeflow.mobile.keyboard",
+                  "bundleIdentifier": "com.vibeflow.app.keyboard",
                   "targetName": "VibeFlowKeyboard",
                   "entitlements": {
                     "com.apple.security.application-groups": [
-                      "group.com.vibeflow.mobile"
+                      "group.com.vibeflow.app"
                     ]
                   }
                 }

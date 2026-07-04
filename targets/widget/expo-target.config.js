@@ -8,7 +8,7 @@ module.exports = (config) => ({
   type: 'widget',
   name: 'VibeFlowWidgets',
   // Pin the bundle id so credentials/registration are deterministic.
-  bundleIdentifier: 'com.vibeflow.mobile.widget',
+  bundleIdentifier: 'com.vibeflow.app.widget',
   frameworks: ['SwiftUI', 'ActivityKit', 'WidgetKit'],
   deploymentTarget: '17.0',
 });

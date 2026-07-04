@@ -57,7 +57,7 @@ final class GapForgivingStack: UIStackView {
 final class KeyboardViewController: UIInputViewController {
 
     // MARK: App Group hand-off
-    private let appGroup = "group.com.vibeflow.mobile"
+    private let appGroup = "group.com.vibeflow.app"
     private let recordURL = "vibeflow://record?from=keyboard"
     private lazy var store = UserDefaults(suiteName: appGroup)
 
