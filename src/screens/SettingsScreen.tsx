@@ -8,13 +8,14 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import * as Updates from 'expo-updates';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CurationOptions } from '@/core';
 import { useAuth } from '@/hooks/useAuth';
 import { signInWithApple, signInWithGoogle, signOut } from '@/services/auth';
+import { fetchQuota, quotaLabel, Quota } from '@/services/quota';
 import { useNav } from '@/navigation/nav';
 import { LANGUAGES, languageLabel, useStore } from '@/store';
 import { getItem, removeItem, setItem } from '@/store/appGroup';
@@ -37,6 +38,20 @@ export function SettingsScreen() {
   const [langOpen, setLangOpen] = useState(false);
   const { signedIn, email } = useAuth();
   const [authBusy, setAuthBusy] = useState(false);
+  // Live "N free left" readout — RLS read, consumes nothing. Refreshes on sign-in
+  // and each time Settings mounts.
+  const [quota, setQuota] = useState<Quota | null>(null);
+  useEffect(() => {
+    if (!signedIn) {
+      setQuota(null);
+      return;
+    }
+    let alive = true;
+    fetchQuota().then((q) => alive && setQuota(q));
+    return () => {
+      alive = false;
+    };
+  }, [signedIn]);
   const runAuth = (fn: () => Promise<void>) => async () => {
     if (authBusy) return;
     setAuthBusy(true);
@@ -150,9 +165,7 @@ export function SettingsScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={Type.label}>{email ?? 'Signed in'}</Text>
-                <Text style={[Type.bodySoft, { marginTop: 2 }]}>
-                  50 free AI polishes / week · Pro = unlimited
-                </Text>
+                <Text style={[Type.bodySoft, { marginTop: 2 }]}>{quotaLabel(quota)}</Text>
               </View>
             </View>
             <Pressable onPress={runAuth(signOut)} style={({ pressed }) => [styles.signOutBtn, pressed && { opacity: 0.7 }]}>

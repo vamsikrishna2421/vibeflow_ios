@@ -17,7 +17,9 @@ Legend: value ★→★★★ · effort L/M/H · **OTA** (JS &/or server) vs **N
 - ✅ **Reformat from History** — expand any saved dictation → Clean/Email/Casual/Notes chips reshape it in place (reuses the styles). **OTA.**
 
 ## Top recommendations (build next — all OTA)
-3. **Live "N free polishes left this week" readout** in Settings + the Talk toast. ★★ · M · OTA. Parity with Android (it reads the profile via RLS, no quota spent); drives Pro. iOS Settings currently shows static "50 free / week". Needs a lightweight profile-quota read (or persist last-known `remaining` from polish responses as a v1).
+- ✅ **Live "N free left" readout** — Settings Account row now shows the real remaining (welcome→weekly bucket, Pro=unlimited) via an RLS read (`services/quota.ts`), mirroring Android; Talk toast already showed it post-polish. **OTA.**
+
+## Top recommendations (build next — all OTA)
 4. **"✨ Enhance / try harder" one-tap re-polish** ★ · L · OTA. Mostly covered by Reformat › Clean; a dedicated affordance is a small add.
 5. **Multilingual polish styles** ★★ · M · OTA (server). The model is language-agnostic but the style prompts are English-shaped; add locale-aware phrasing so non-English dictation formats idiomatically.
 
