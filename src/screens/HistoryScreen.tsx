@@ -10,7 +10,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { polish } from '@/services/polish';
+import { polish, PolishStyle } from '@/services/polish';
 import { Dictation, useStore } from '@/store';
 import { Colors, Radius } from '@/theme/colors';
 import {
@@ -206,6 +206,34 @@ export function HistoryScreen() {
     }
   };
 
+  // Reformat a saved dictation into a chosen style, editing it in place. Shown as
+  // per-item chips when the entry is expanded (Clean/Email/Casual/Notes).
+  const REFORMATS: { style: PolishStyle; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+    { style: 'cleanup', label: 'Clean', icon: 'sparkles-outline' },
+    { style: 'email', label: 'Email', icon: 'mail-outline' },
+    { style: 'message', label: 'Casual', icon: 'chatbubble-ellipses-outline' },
+    { style: 'notes', label: 'Notes', icon: 'list-outline' },
+  ];
+  const reformatItem = async (item: Dictation, style: PolishStyle) => {
+    if (polishingId) return;
+    setPolishingId(item.id);
+    haptic.tap();
+    const r = await polish(item.text, style);
+    setPolishingId(null);
+    if (r.ok && r.text) {
+      editDictation(item.id, r.text);
+      setExpandedId(item.id);
+      haptic.success();
+      setToast(r.isPro ? '✨ Reformatted' : `✨ Reformatted — ${r.remaining ?? '?'} free left this week`);
+    } else if (r.error === 'limit_reached') {
+      setToast('Free polishes used up this week — Pro is unlimited');
+    } else if (r.error === 'signed_out') {
+      setToast('Sign in under Settings → Account & AI to reformat');
+    } else {
+      setToast('Could not reformat — try again');
+    }
+  };
+
   // Auto-dismiss the inline toast (mirrors the Talk screen pattern).
   useEffect(() => {
     if (!toast) return;
@@ -348,6 +376,22 @@ export function HistoryScreen() {
                     {item.text}
                   </Text>
 
+                  {expandedId === item.id ? (
+                    <View style={styles.reformatRow}>
+                      {REFORMATS.map((rf) => (
+                        <Pressable
+                          key={rf.style}
+                          onPress={() => reformatItem(item, rf.style)}
+                          disabled={polishingId === item.id}
+                          style={({ pressed }) => [styles.reformatChip, pressed && { opacity: 0.7 }]}
+                        >
+                          <Ionicons name={rf.icon} size={13} color={Colors.inkSoft} />
+                          <Text style={styles.reformatChipText}>{rf.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
+
                   <View style={styles.entryFooter}>
                     <Text style={styles.copyHint}>
                       {expandedId === item.id ? 'tap to collapse' : 'tap to read all'}
@@ -444,6 +488,13 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
   },
   entryText: { color: Colors.ink, fontSize: 15.5, lineHeight: 22.5 },
+  reformatRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  reformatChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, height: 32,
+    borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.outline,
+  },
+  reformatChipText: { color: Colors.inkSoft, fontSize: 12.5, fontWeight: '600' },
 
   entryHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   timeChip: {
