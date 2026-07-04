@@ -1,17 +1,21 @@
 /**
  * First-run personalised demo — the activation "aha" moment.
  *
- * Flow (a small in-screen state machine, shown once, gated by store.demoCompleted):
- *   1. profile  — capture the user's name + job title (name prefilled from sign-in).
- *   2. read     — show a short message written *as if from them* and have them read
- *                 it aloud. The recognizer is PRIMED with name+title (contextualStrings
- *                 → SFSpeechRecognizer) so those are heard correctly, and both are saved
- *                 to Vocabulary so they're never misheard again (keyboard included).
- *   3. result   — their RAW dictation (what Free gives) beside the VibeFlow Pro polish
- *                 (real AI if signed in, a representative preview otherwise) → "Unlock Pro".
+ * Flow (one-time, gated by store.demoCompleted):
+ *   0. signin      — Apple/Google, skippable (a session lets Pro polish real words).
+ *   1. profile     — capture name + job title (name prefilled from sign-in).
+ *   2. permissions — explicit up-front mic + speech ask (the mic-tap ask remains too).
+ *   3. read        — read a personalised brain-dump aloud. The recognizer is PRIMED
+ *                    with name+title (contextualStrings → SFSpeechRecognizer) so they're
+ *                    heard right, and both are saved to Vocabulary (keyboard included).
+ *   4. result      — the RAW dictation, then the SAME words transformed three ways —
+ *                    Email · Casual · Notes (facts/to-dos/follow-ups/open questions) —
+ *                    to show Pro's range. Real polish() when signed in, crafted preview
+ *                    otherwise. → "Unlock Pro".
  */
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -19,38 +23,79 @@ import { useAuth } from '@/hooks/useAuth';
 import { useDictation } from '@/hooks/useDictation';
 import { useNav } from '@/navigation/nav';
 import { signInWithApple, signInWithGoogle } from '@/services/auth';
-import { polish } from '@/services/polish';
+import { polish, PolishStyle } from '@/services/polish';
 import { useStore } from '@/store';
-import { Colors, Radius, Spacing, brandGradient, heroMicGradient } from '@/theme/colors';
+import { Colors, Radius, brandGradient, heroMicGradient } from '@/theme/colors';
 import { Card, GhostButton, PrimaryButton, Screen, TextField, Type, haptic } from '@/ui/kit';
 
+// The three showcase styles (a subset of PolishStyle) + their tab presentation.
+type Style = 'email' | 'message' | 'notes';
+const STYLES: { key: Style; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'email', label: 'Email', icon: 'mail-outline' },
+  { key: 'message', label: 'Casual', icon: 'chatbubble-ellipses-outline' },
+  { key: 'notes', label: 'Notes', icon: 'list-outline' },
+];
+
 // ── personalised copy ────────────────────────────────────────────────────────
-/** The message the user reads aloud — realistic, punctuation-rich, name+role embedded. */
+/** A natural brain-dump the user reads aloud — deliberately rambling so the three
+ *  transformations (formal email / casual chat / structured notes) all land. */
 function buildSample(name: string, role: string): string {
   const who = [name, role].filter(Boolean).join(', ');
-  const intro = who ? `Hi, this is ${who}.` : 'Hi there.';
+  const intro = who ? `This is ${who}, just capturing a few quick thoughts before I forget.` : 'Just capturing a few quick thoughts before I forget.';
   return (
-    `${intro} I wanted to follow up on yesterday's conversation about the Q3 launch plan. ` +
-    `Could you send over the revised budget by Thursday and loop in the design team so we can ` +
-    `lock the timeline? I'd also like to set up a quick 30 minute sync early next week to review ` +
-    `the final numbers. Thanks so much for your help on this, and let me know if anything is unclear.`
+    `${intro} We need to finalize the Q3 budget by Thursday — I think we're running about ` +
+    `fifteen percent over right now. Remind me to loop in the design team about the new timeline, ` +
+    `and did marketing ever confirm the launch date? Also, the vendor contract renews next month, ` +
+    `so someone should review that. I'm feeling good about the roadmap overall, but the numbers need another look.`
   );
 }
 
-/** A representative "what Pro produces" preview, used when a live polish isn't available. */
-function buildCannedAfter(name: string): string {
+/** Crafted "what Pro produces" preview for each style — used when a live polish
+ *  isn't available (not signed in / offline / quota). Guarantees the format lands. */
+function cannedFor(style: Style, name: string): string {
   const sign = name ? `\n\nBest,\n${name}` : '';
+  if (style === 'email') {
+    return (
+      `Subject: Q3 Roadmap — budget, timeline & open items\n\n` +
+      `Hi team,\n\n` +
+      `A few quick items before they slip:\n` +
+      `• Finalize the Q3 budget by Thursday — we're ~15% over, so it needs another look.\n` +
+      `• I'll loop in the design team on the new timeline.\n` +
+      `• Can someone confirm whether marketing locked the launch date?\n` +
+      `• The vendor contract renews next month — let's review it beforehand.\n\n` +
+      `Feeling good about the roadmap overall; just want the numbers tightened.${sign}`
+    );
+  }
+  if (style === 'message') {
+    return (
+      `Hey! Quick brain-dump 🧠\n\n` +
+      `• Q3 budget's due Thursday, we're ~15% over 😬\n` +
+      `• I'll pull in design on the timeline\n` +
+      `• Did marketing ever lock the launch date?\n` +
+      `• Heads up — vendor contract renews next month, needs a review\n\n` +
+      `Roadmap's looking good, just gotta fix the numbers 👍`
+    );
+  }
   return (
-    `Hi team,\n\n` +
-    `Following up on yesterday's conversation about the Q3 launch plan:\n\n` +
-    `• Please send over the revised budget by Thursday.\n` +
-    `• Loop in the design team so we can lock the timeline.\n\n` +
-    `I'd also like to set up a quick 30‑minute sync early next week to review the final numbers.\n\n` +
-    `Thanks so much for your help — let me know if anything's unclear.${sign}`
+    `📌 FACTS\n` +
+    `• Q3 budget is ~15% over.\n` +
+    `• Vendor contract renews next month.\n\n` +
+    `✅ TO-DOS\n` +
+    `• Finalize the Q3 budget by Thursday.\n` +
+    `• Loop in the design team on the new timeline.\n\n` +
+    `🔁 FOLLOW-UPS\n` +
+    `• Review the vendor contract before it renews.\n\n` +
+    `❓ OPEN QUESTIONS\n` +
+    `• Did marketing confirm the launch date?`
   );
 }
 
-type Step = 'signin' | 'profile' | 'read' | 'result';
+type Step = 'signin' | 'profile' | 'permissions' | 'read' | 'result';
+interface Output {
+  text: string;
+  kind: 'real' | 'canned';
+  loading: boolean;
+}
 
 export function PersonalizedDemoScreen() {
   const { setProfile, addTerm, completeDemo, settings, profile } = useStore();
@@ -62,22 +107,89 @@ export function PersonalizedDemoScreen() {
   const [name, setName] = useState(profile.name || meta.full_name || meta.name || '');
   const [role, setRole] = useState(profile.jobTitle || '');
   const [raw, setRaw] = useState('');
-  const [after, setAfter] = useState('');
-  const [afterKind, setAfterKind] = useState<'real' | 'canned'>('canned');
-  const [polishing, setPolishing] = useState(false);
+  const [activeStyle, setActiveStyle] = useState<Style>('email');
+  const [outputs, setOutputs] = useState<Partial<Record<Style, Output>>>({});
   const [authBusy, setAuthBusy] = useState(false);
 
-  // Already signed in when the demo opens? Skip straight past the sign-in step.
+  const sample = useMemo(() => buildSample(name.trim(), role.trim()), [name, role]);
+
+  // Already signed in when the demo opens? Skip past the sign-in step.
   useEffect(() => {
     if (step === 'signin' && ready && signedIn) setStep('profile');
   }, [step, ready, signedIn]);
 
-  // Prefill the name from the provider once a session lands (if still blank).
+  // Prefill name from the provider once a session lands (if still blank).
   useEffect(() => {
     const fromProvider = meta.full_name || meta.name;
     if (fromProvider && !name.trim()) setName(String(fromProvider));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meta.full_name, meta.name]);
+
+  const dictation = useDictation({
+    lang: settings.language,
+    onDeviceOnly: settings.onDeviceOnly,
+    contextualStrings: [name.trim(), role.trim(), ...name.trim().split(/\s+/)].filter(Boolean),
+    onFinal: (text) => {
+      const t = text.trim();
+      if (t.length < 4) return; // didn't catch anything — let them try again
+      setRaw(t);
+      setOutputs({});
+      setActiveStyle('email');
+      setStep('result');
+      polishStyle('email', t); // eagerly polish the default tab
+    },
+  });
+  const listening = dictation.state === 'listening';
+
+  async function polishStyle(style: Style, text: string) {
+    setOutputs((o) => ({ ...o, [style]: { text: '', kind: 'canned', loading: true } }));
+    const r = await polish(text, style as PolishStyle);
+    setOutputs((o) => ({
+      ...o,
+      [style]:
+        r.ok && r.text
+          ? { text: r.text, kind: 'real', loading: false }
+          : { text: cannedFor(style, name.trim()), kind: 'canned', loading: false },
+    }));
+  }
+
+  function selectStyle(s: Style) {
+    haptic.tap();
+    setActiveStyle(s);
+    if (!outputs[s] && raw) polishStyle(s, raw);
+  }
+
+  // Persist profile + seed vocabulary the moment they commit to the demo.
+  function prime() {
+    setProfile({ name: name.trim(), jobTitle: role.trim() });
+    if (name.trim()) addTerm(name.trim());
+    if (role.trim()) addTerm(role.trim());
+  }
+
+  function toPermissions() {
+    prime();
+    haptic.tap();
+    setStep('permissions');
+  }
+
+  // Explicit up-front permission ask (mic + speech). We advance either way — the
+  // mic-tap request in useDictation stays as the safety net if they defer here.
+  async function requestPerms() {
+    try {
+      await ExpoSpeechRecognitionModule.requestMicrophonePermissionsAsync();
+      await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      haptic.success();
+    } catch {
+      // ignore — read step re-asks on the first mic tap
+    }
+    setStep('read');
+  }
+
+  function finish(toPaywall: boolean) {
+    prime();
+    if (toPaywall) push('paywall');
+    completeDemo();
+  }
 
   const runAuth = (fn: () => Promise<void>) => async () => {
     if (authBusy) return;
@@ -95,60 +207,11 @@ export function PersonalizedDemoScreen() {
     }
   };
 
-  const sample = useMemo(() => buildSample(name.trim(), role.trim()), [name, role]);
-
-  const dictation = useDictation({
-    lang: settings.language,
-    onDeviceOnly: settings.onDeviceOnly,
-    // Prime the recognizer with the name (full + parts) and role.
-    contextualStrings: [name.trim(), role.trim(), ...name.trim().split(/\s+/)].filter(Boolean),
-    onFinal: (text) => {
-      const t = text.trim();
-      if (t.length < 4) return; // didn't catch anything — let them try again
-      setRaw(t);
-      setStep('result');
-      runPolish(t);
-    },
-  });
-  const listening = dictation.state === 'listening';
-
-  async function runPolish(text: string) {
-    setPolishing(true);
-    const r = await polish(text, 'auto');
-    if (r.ok && r.text) {
-      setAfter(r.text);
-      setAfterKind('real');
-    } else {
-      setAfter(buildCannedAfter(name.trim()));
-      setAfterKind('canned');
-    }
-    setPolishing(false);
-  }
-
-  // Persist profile + seed vocabulary the moment they commit to the demo.
-  function prime() {
-    setProfile({ name: name.trim(), jobTitle: role.trim() });
-    if (name.trim()) addTerm(name.trim());
-    if (role.trim()) addTerm(role.trim());
-  }
-
-  function toRead() {
-    prime();
-    haptic.tap();
-    setStep('read');
-  }
-
-  function finish(toPaywall: boolean) {
-    prime();
-    if (toPaywall) push('paywall');
-    completeDemo();
-  }
-
   async function signInAndPolish() {
     try {
       await signInWithApple();
       haptic.success();
-      if (raw) runPolish(raw);
+      if (raw) polishStyle(activeStyle, raw); // re-polish current tab for real
     } catch {
       haptic.warning();
     }
@@ -164,7 +227,8 @@ export function PersonalizedDemoScreen() {
           </LinearGradient>
           <Text style={Type.title}>Welcome to VibeFlow</Text>
           <Text style={[Type.subtitle, { marginTop: 6 }]}>
-            Sign in to sync across your devices and get <Text style={{ color: Colors.ink, fontWeight: '700' }}>50 free AI polishes a week</Text> — so we can show you the real magic on your own words.
+            Sign in to sync across your devices and get{' '}
+            <Text style={{ color: Colors.ink, fontWeight: '700' }}>50 free AI polishes a week</Text> — so we can show you the real magic on your own words.
           </Text>
         </View>
 
@@ -197,8 +261,7 @@ export function PersonalizedDemoScreen() {
           </LinearGradient>
           <Text style={Type.title}>Let's make this yours</Text>
           <Text style={[Type.subtitle, { marginTop: 6 }]}>
-            Tell us who you are — VibeFlow will teach the recognizer your name so it's never
-            misheard, and tailor a quick 15‑second demo.
+            Tell us who you are — VibeFlow will teach the recognizer your name so it's never misheard, and tailor a quick demo.
           </Text>
         </View>
 
@@ -208,8 +271,35 @@ export function PersonalizedDemoScreen() {
         </Card>
 
         <View style={{ height: 20 }} />
-        <PrimaryButton label="Start the demo" icon="arrow-forward" onPress={toRead} disabled={!name.trim()} />
+        <PrimaryButton label="Continue" icon="arrow-forward" onPress={toPermissions} disabled={!name.trim()} />
         <GhostButton label="Skip for now" onPress={() => finish(false)} style={{ marginTop: 6 }} />
+      </Screen>
+    );
+  }
+
+  // ── step 1.5: permissions (explicit, up-front) ─────────────────────────────
+  if (step === 'permissions') {
+    return (
+      <Screen>
+        <View style={styles.hero}>
+          <LinearGradient colors={[...brandGradient]} style={styles.heroIcon}>
+            <Ionicons name="mic" size={26} color="#fff" />
+          </LinearGradient>
+          <Text style={Type.title}>Enable your voice</Text>
+          <Text style={[Type.subtitle, { marginTop: 6 }]}>
+            VibeFlow turns speech into text{' '}
+            <Text style={{ color: Colors.ink, fontWeight: '700' }}>on‑device</Text> — your voice never leaves your phone. We just need the microphone and speech recognition.
+          </Text>
+        </View>
+
+        <Card style={{ gap: 16 }}>
+          <PermRow icon="mic-outline" title="Microphone" sub="To hear you while you dictate." />
+          <PermRow icon="chatbubble-ellipses-outline" title="Speech Recognition" sub="To turn what you say into text, on-device." />
+        </Card>
+
+        <View style={{ height: 20 }} />
+        <PrimaryButton label="Allow microphone & speech" icon="shield-checkmark" onPress={requestPerms} />
+        <GhostButton label="Not now" onPress={() => setStep('read')} style={{ marginTop: 6 }} />
       </Screen>
     );
   }
@@ -225,7 +315,7 @@ export function PersonalizedDemoScreen() {
           </Text>
         </View>
 
-        <Card style={{ gap: 0 }}>
+        <Card>
           <Text style={styles.sample}>{sample}</Text>
         </Card>
 
@@ -234,16 +324,15 @@ export function PersonalizedDemoScreen() {
             {dictation.transcript || 'Listening…'}
           </Text>
         ) : (
-          <Text style={styles.hint}>
-            Your name + title are primed, so they'll come through right.
-          </Text>
+          <Text style={styles.hint}>Your name + title are primed, so they'll come through right.</Text>
         )}
 
         <View style={styles.micWrap}>
-          <MicOrb listening={listening} level={dictation.level} onPress={() => {
-            if (listening) dictation.stop();
-            else dictation.start();
-          }} />
+          <MicOrb
+            listening={listening}
+            level={dictation.level}
+            onPress={() => (listening ? dictation.stop() : dictation.start())}
+          />
           <Text style={styles.micLabel}>{listening ? 'Tap to finish' : 'Tap to speak'}</Text>
         </View>
 
@@ -252,46 +341,64 @@ export function PersonalizedDemoScreen() {
     );
   }
 
-  // ── step 3: before vs after ────────────────────────────────────────────────
+  // ── step 3: before → three transformations ─────────────────────────────────
+  const out = outputs[activeStyle];
   return (
     <Screen>
       <View style={styles.hero}>
-        <Text style={Type.title}>Here's the difference</Text>
+        <Text style={Type.title}>One voice note, three ways</Text>
         <Text style={[Type.subtitle, { marginTop: 6 }]}>
-          Same words. This is what Pro's AI polish adds on top of free dictation.
+          Same words. Watch Pro reshape them for wherever they're going.
         </Text>
       </View>
 
-      {/* BEFORE — raw dictation (free) */}
+      {/* BEFORE — raw dictation */}
       <View style={styles.resultLabelRow}>
         <Ionicons name="mic-outline" size={15} color={Colors.inkSoft} />
         <Text style={styles.resultLabel}>FREE · your raw dictation</Text>
       </View>
-      <Card style={{ marginBottom: 16 }}>
+      <Card style={{ marginBottom: 18 }}>
         <Text style={styles.beforeText}>{raw}</Text>
       </Card>
 
-      {/* AFTER — Pro polish */}
+      {/* style tabs */}
+      <View style={styles.tabs}>
+        {STYLES.map((s) => {
+          const active = s.key === activeStyle;
+          return (
+            <Pressable
+              key={s.key}
+              onPress={() => selectStyle(s.key)}
+              style={({ pressed }) => [styles.tab, active && styles.tabActive, pressed && { opacity: 0.85 }]}
+            >
+              <Ionicons name={s.icon} size={15} color={active ? '#fff' : Colors.inkSoft} />
+              <Text style={[styles.tabText, active && styles.tabTextActive]}>{s.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* AFTER — polished for the selected style */}
       <View style={styles.resultLabelRow}>
         <Ionicons name="sparkles" size={15} color={Colors.amber} />
         <Text style={[styles.resultLabel, { color: Colors.amber }]}>
-          VIBEFLOW PRO · polished{afterKind === 'canned' ? ' (preview)' : ''}
+          VIBEFLOW PRO{out?.kind === 'canned' ? ' · preview' : ''}
         </Text>
       </View>
       <LinearGradient colors={['#F7D774', '#D4A017']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.proEdge}>
         <View style={styles.proInner}>
-          {polishing ? (
+          {!out || out.loading ? (
             <View style={styles.polishing}>
               <ActivityIndicator color={Colors.amber} />
               <Text style={{ color: Colors.inkSoft }}>Polishing…</Text>
             </View>
           ) : (
-            <Text style={styles.afterText}>{after}</Text>
+            <Text style={styles.afterText}>{out.text}</Text>
           )}
         </View>
       </LinearGradient>
 
-      {afterKind === 'canned' && !signedIn ? (
+      {out?.kind === 'canned' && !signedIn ? (
         <Pressable onPress={signInAndPolish} style={styles.signInNudge}>
           <Ionicons name="logo-apple" size={15} color={Colors.ink} />
           <Text style={styles.signInNudgeText}>Sign in to polish your own words</Text>
@@ -305,7 +412,21 @@ export function PersonalizedDemoScreen() {
   );
 }
 
-// ── mic orb (compact, self-contained) ────────────────────────────────────────
+// ── small helpers ─────────────────────────────────────────────────────────────
+function PermRow({ icon, title, sub }: { icon: keyof typeof Ionicons.glyphMap; title: string; sub: string }) {
+  return (
+    <View style={styles.permRow}>
+      <View style={styles.permIcon}>
+        <Ionicons name={icon} size={18} color={Colors.brand} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.permTitle}>{title}</Text>
+        <Text style={styles.permSub}>{sub}</Text>
+      </View>
+    </View>
+  );
+}
+
 function MicOrb({ listening, level, onPress }: { listening: boolean; level: number; onPress: () => void }) {
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -330,9 +451,7 @@ function MicOrb({ listening, level, onPress }: { listening: boolean; level: numb
   return (
     <View style={styles.orbArea}>
       {listening ? (
-        <Animated.View
-          style={[styles.orbRing, { transform: [{ scale: ringScale }], opacity: ringOpacity }]}
-        />
+        <Animated.View style={[styles.orbRing, { transform: [{ scale: ringScale }], opacity: ringOpacity }]} />
       ) : null}
       <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={listening ? 'Stop' : 'Start'}>
         <LinearGradient
@@ -350,9 +469,7 @@ function MicOrb({ listening, level, onPress }: { listening: boolean; level: numb
 
 const styles = StyleSheet.create({
   hero: { marginBottom: 22 },
-  heroIcon: {
-    width: 56, height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 16,
-  },
+  heroIcon: { width: 56, height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   sample: { color: Colors.ink, fontSize: 17, lineHeight: 27, fontWeight: '500' },
   hint: { color: Colors.inkFaint, fontSize: 13, textAlign: 'center', marginTop: 18 },
   live: { color: Colors.inkSoft, fontSize: 15, lineHeight: 22, textAlign: 'center', marginTop: 18, minHeight: 44 },
@@ -363,28 +480,35 @@ const styles = StyleSheet.create({
   orbRing: { position: 'absolute', width: 104, height: 104, borderRadius: 52, backgroundColor: '#7C5CFF' },
   orb: { width: 104, height: 104, borderRadius: 52, alignItems: 'center', justifyContent: 'center' },
 
+  permRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  permIcon: { width: 38, height: 38, borderRadius: 11, backgroundColor: Colors.chipBg, alignItems: 'center', justifyContent: 'center' },
+  permTitle: { color: Colors.ink, fontSize: 15, fontWeight: '600' },
+  permSub: { color: Colors.inkSoft, fontSize: 13, marginTop: 1 },
+
+  tabs: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  tab: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    height: 40, borderRadius: 12, backgroundColor: Colors.chipBg,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.outline,
+  },
+  tabActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
+  tabText: { color: Colors.inkSoft, fontSize: 13, fontWeight: '600' },
+  tabTextActive: { color: '#fff' },
+
   resultLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   resultLabel: { color: Colors.inkSoft, fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
   beforeText: { color: Colors.inkSoft, fontSize: 15, lineHeight: 23 },
   proEdge: { borderRadius: Radius.card + 2, padding: 2 },
-  proInner: { backgroundColor: Colors.surface, borderRadius: Radius.card, padding: 16 },
+  proInner: { backgroundColor: Colors.surface, borderRadius: Radius.card, padding: 16, minHeight: 80 },
   afterText: { color: Colors.ink, fontSize: 15, lineHeight: 24, fontWeight: '500' },
   polishing: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
 
   signInNudge: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 14 },
   signInNudgeText: { color: Colors.ink, fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' },
 
-  appleBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    height: 52, borderRadius: 14, backgroundColor: '#fff', marginBottom: 10,
-  },
+  appleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 52, borderRadius: 14, backgroundColor: '#fff', marginBottom: 10 },
   appleBtnText: { color: '#000', fontSize: 16, fontWeight: '600' },
-  googleBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    height: 52, borderRadius: 14, backgroundColor: Colors.surface,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.outline,
-  },
+  googleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 52, borderRadius: 14, backgroundColor: Colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.outline },
   googleBtnText: { color: Colors.ink, fontSize: 16, fontWeight: '600' },
   skipNote: { color: Colors.inkFaint, fontSize: 12, textAlign: 'center', marginTop: 10, lineHeight: 17 },
 });
-
