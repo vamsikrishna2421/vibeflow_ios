@@ -21,6 +21,12 @@ export interface UseDictationOptions {
   lang: string;
   onDeviceOnly: boolean;
   onFinal: (transcript: string) => void;
+  /**
+   * Terms the recognizer should bias toward — names, job titles, jargon — mapped
+   * to SFSpeechRecognitionRequest.contextualStrings. Boosts first-pass accuracy so
+   * e.g. the user's name isn't mis-heard. Read live via a ref so `start` stays stable.
+   */
+  contextualStrings?: string[];
 }
 
 export interface UseDictation {
@@ -33,7 +39,12 @@ export interface UseDictation {
   stop: () => void;
 }
 
-export function useDictation({ lang, onDeviceOnly, onFinal }: UseDictationOptions): UseDictation {
+export function useDictation({
+  lang,
+  onDeviceOnly,
+  onFinal,
+  contextualStrings,
+}: UseDictationOptions): UseDictation {
   const [state, setState] = useState<DictationState>('idle');
   const [partial, setPartial] = useState('');
   const [level, setLevel] = useState(0);
@@ -45,6 +56,13 @@ export function useDictation({ lang, onDeviceOnly, onFinal }: UseDictationOption
   useEffect(() => {
     onFinalRef.current = onFinal;
   }, [onFinal]);
+
+  // Latest biasing terms, kept in a ref so `start`'s identity doesn't churn when a
+  // caller passes a fresh array literal each render.
+  const contextualRef = useRef<string[] | undefined>(contextualStrings);
+  useEffect(() => {
+    contextualRef.current = contextualStrings;
+  }, [contextualStrings]);
 
   // Cold-start guard: SFSpeechRecognizer frequently fires "no speech" on the very
   // first start after launch (audio engine not warmed yet). We retry once before
@@ -111,12 +129,14 @@ export function useDictation({ lang, onDeviceOnly, onFinal }: UseDictationOption
           setState('error');
           return;
         }
+        const bias = contextualRef.current?.filter((s) => s && s.trim().length > 0);
         ExpoSpeechRecognitionModule.start({
           lang,
           interimResults: true,
           continuous: true,
           requiresOnDeviceRecognition: onDeviceOnly,
           addsPunctuation: true,
+          ...(bias && bias.length ? { contextualStrings: bias } : {}),
           volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
           // Join the Flow Session's keep-alive audio session instead of replacing
           // it — reconfiguring the session from the background fails silently.

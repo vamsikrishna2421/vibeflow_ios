@@ -14,10 +14,12 @@ import { CorrectionsScreen } from '@/screens/CorrectionsScreen';
 import { HistoryScreen } from '@/screens/HistoryScreen';
 import { KeyboardSetupScreen } from '@/screens/KeyboardSetupScreen';
 import { PaywallScreen } from '@/screens/PaywallScreen';
+import { PersonalizedDemoScreen } from '@/screens/PersonalizedDemoScreen';
 import { SettingsScreen } from '@/screens/SettingsScreen';
 import { SnippetsScreen } from '@/screens/SnippetsScreen';
 import { TalkScreen } from '@/screens/TalkScreen';
 import { VocabularyScreen } from '@/screens/VocabularyScreen';
+import { useStore } from '@/store';
 import { Colors } from '@/theme/colors';
 import { haptic } from '@/ui/kit';
 
@@ -38,7 +40,14 @@ const TABS: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] 
 
 export function RootNavigator() {
   const { tab, stack, setTab } = useNav();
+  const { hydrated, demoCompleted } = useStore();
   const insets = useSafeAreaInsets();
+
+  // First run: the personalised demo owns the whole screen until it's completed.
+  // Gate on `hydrated` so we never flash it before the persisted flag loads.
+  if (hydrated && !demoCompleted) {
+    return <PersonalizedDemoScreen />;
+  }
 
   const top = stack[stack.length - 1];
   const TopScreen = top ? STACK_SCREENS[top] : null;

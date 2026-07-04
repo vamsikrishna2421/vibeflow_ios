@@ -27,6 +27,7 @@ import {
   PersistedState,
   Snippet,
   Term,
+  UserProfile,
   defaultPersistedState,
   defaultSettings,
 } from './types';
@@ -57,7 +58,10 @@ type Action =
   | { type: 'UPDATE_CORRECTION'; id: number; from: string; to: string }
   | { type: 'DELETE_CORRECTION'; id: number }
   | { type: 'UPDATE_SETTINGS'; patch: Partial<AppSettings> }
-  | { type: 'SET_PREMIUM'; premium: boolean };
+  | { type: 'SET_PREMIUM'; premium: boolean }
+  | { type: 'SET_PROFILE'; profile: UserProfile }
+  | { type: 'COMPLETE_DEMO' }
+  | { type: 'RESET_DEMO' };
 
 interface State extends PersistedState {
   hydrated: boolean;
@@ -151,6 +155,18 @@ function reducer(state: State, action: Action): State {
     case 'SET_PREMIUM':
       return { ...state, premium: action.premium };
 
+    case 'SET_PROFILE':
+      return {
+        ...state,
+        profile: { name: action.profile.name.trim(), jobTitle: action.profile.jobTitle.trim() },
+      };
+
+    case 'COMPLETE_DEMO':
+      return { ...state, demoCompleted: true };
+
+    case 'RESET_DEMO':
+      return { ...state, demoCompleted: false };
+
     default:
       return state;
   }
@@ -172,6 +188,9 @@ export interface StoreActions {
   deleteCorrection(id: number): void;
   updateSettings(patch: Partial<AppSettings>): void;
   setPremium(premium: boolean): void;
+  setProfile(profile: UserProfile): void;
+  completeDemo(): void;
+  replayDemo(): void;
 }
 
 export type StoreValue = State & StoreActions;
@@ -194,6 +213,9 @@ function mergePersisted(parsed: Partial<PersistedState>): PersistedState {
     vocabulary: parsed.vocabulary ?? base.vocabulary,
     corrections: parsed.corrections ?? base.corrections,
     premium: parsed.premium ?? base.premium,
+    profile: { ...base.profile, ...parsed.profile },
+    // Existing installs (upgrading) already know the app → skip the first-run demo.
+    demoCompleted: parsed.demoCompleted ?? (parsed.settings ? true : base.demoCompleted),
   };
 }
 
@@ -231,6 +253,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       vocabulary: state.vocabulary,
       corrections: state.corrections,
       premium: state.premium,
+      profile: state.profile,
+      demoCompleted: state.demoCompleted,
     };
     kvSet(STORAGE_KEY, JSON.stringify(persisted));
   }, [state]);
@@ -273,6 +297,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       deleteCorrection: (id) => dispatch({ type: 'DELETE_CORRECTION', id }),
       updateSettings: (patch) => dispatch({ type: 'UPDATE_SETTINGS', patch }),
       setPremium: (premium) => dispatch({ type: 'SET_PREMIUM', premium }),
+      setProfile: (profile) => dispatch({ type: 'SET_PROFILE', profile }),
+      completeDemo: () => dispatch({ type: 'COMPLETE_DEMO' }),
+      replayDemo: () => dispatch({ type: 'RESET_DEMO' }),
     }),
     [],
   );

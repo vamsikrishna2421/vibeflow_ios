@@ -33,6 +33,12 @@ export interface Term {
   term: string;
 }
 
+/** Who the user is — captured in the first-run demo, used to personalise + prime ASR. */
+export interface UserProfile {
+  name: string;
+  jobTitle: string;
+}
+
 /** User-tunable behaviour. `curation` is the full set of pipeline toggles. */
 export interface AppSettings {
   curation: CurationOptions;
@@ -54,6 +60,10 @@ export interface PersistedState {
   vocabulary: Term[];
   corrections: Correction[];
   premium: boolean;
+  /** Captured in the first-run demo (empty until then). */
+  profile: UserProfile;
+  /** True once the first-run personalised demo has been seen. Gates the demo. */
+  demoCompleted: boolean;
 }
 
 /** Languages offered for on-device recognition (BCP-47 codes). */
@@ -98,5 +108,7 @@ export function defaultPersistedState(): PersistedState {
     vocabulary: [],
     corrections: [],
     premium: false,
+    profile: { name: '', jobTitle: '' },
+    demoCompleted: false,
   };
 }

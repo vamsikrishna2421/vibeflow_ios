@@ -32,7 +32,7 @@ import {
 } from '@/ui/kit';
 
 export function SettingsScreen() {
-  const { settings, updateSettings, premium, snippets, vocabulary, corrections } = useStore();
+  const { settings, updateSettings, premium, snippets, vocabulary, corrections, replayDemo } = useStore();
   const { push } = useNav();
   const [langOpen, setLangOpen] = useState(false);
   const { signedIn, email } = useAuth();
@@ -422,6 +422,16 @@ export function SettingsScreen() {
           tint="#9AA5B1"
           label="About VibeFlow"
           onPress={() => push('about')}
+        />
+        <Divider />
+        <NavRow
+          icon="sparkles-outline"
+          tint={Colors.brand}
+          label="Replay welcome demo"
+          onPress={() => {
+            haptic.tap();
+            replayDemo();
+          }}
         />
       </Card>
 
