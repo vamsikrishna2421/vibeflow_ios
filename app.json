@@ -23,7 +23,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.vibeflow.mobile",
       "buildNumber": "1.0.20",
-      "appleTeamId": "CJ8SV692GN",
+      "appleTeamId": "33348G2388",
       "entitlements": {
         "com.apple.security.application-groups": [
           "group.com.vibeflow.mobile"
