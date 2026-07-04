@@ -12,7 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
 import * as Updates from 'expo-updates';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, AppState, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, AppState, Easing, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
@@ -365,26 +365,34 @@ export function TalkScreen() {
     { style: 'message', label: 'Casual', icon: 'chatbubble-ellipses-outline' },
     { style: 'notes', label: 'Notes', icon: 'list-outline' },
   ];
-  const reformat = async (style: PolishStyle) => {
+  const [editInstruction, setEditInstruction] = useState('');
+  const runPolishStyle = async (style: PolishStyle, instruction?: string) => {
     const text = draftRef.current.trim();
     if (!text || reformatting) return;
     if (!signedInRef.current) {
-      flashToast('Sign in (Settings) to reformat with AI');
+      flashToast('Sign in (Settings) to edit with AI');
       return;
     }
     setReformatting(style);
     if (settings.haptics) haptic.tap();
-    const r = await polish(text, style);
+    const r = await polish(text, style, instruction);
     setReformatting(null);
     if (r.ok && r.text) {
       setDraft(r.text);
       if (settings.autoCopy) Clipboard.setStringAsync(r.text).catch(() => {});
-      flashToast(r.isPro ? '✨ Reformatted' : `✨ Reformatted — ${r.remaining ?? '?'} free left`);
-    } else if (r.error === 'limit_reached') {
-      flashToast('Free polishes used up this week — Pro is unlimited');
-    } else {
-      flashToast('Could not reformat — try again');
+      flashToast(r.isPro ? '✨ Done' : `✨ Done — ${r.remaining ?? '?'} free left`);
+      return true;
     }
+    if (r.error === 'limit_reached') flashToast('Free polishes used up this week — Pro is unlimited');
+    else flashToast('Could not apply — try again');
+    return false;
+  };
+  const reformat = (style: PolishStyle) => runPolishStyle(style);
+  const applyEdit = async () => {
+    const instruction = editInstruction.trim();
+    if (!instruction) return;
+    const ok = await runPolishStyle('instruct', instruction);
+    if (ok) setEditInstruction('');
   };
 
   const onCopy = async () => {
@@ -553,6 +561,33 @@ export function TalkScreen() {
                     <Text style={styles.reformatChipText}>{rf.label}</Text>
                   </Pressable>
                 ))}
+              </View>
+              <View style={styles.editRow}>
+                <TextInput
+                  value={editInstruction}
+                  onChangeText={setEditInstruction}
+                  placeholder="Tell VibeFlow how to change it…"
+                  placeholderTextColor={Colors.inkFaint}
+                  style={styles.editInput}
+                  returnKeyType="send"
+                  onSubmitEditing={applyEdit}
+                  editable={!reformatting}
+                />
+                <Pressable
+                  onPress={applyEdit}
+                  disabled={!!reformatting || !editInstruction.trim()}
+                  style={({ pressed }) => [
+                    styles.editSend,
+                    (!editInstruction.trim() || !!reformatting) && { opacity: 0.4 },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  {reformatting === 'instruct' ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Ionicons name="arrow-up" size={18} color="#fff" />
+                  )}
+                </Pressable>
               </View>
             </>
           ) : null}
@@ -971,6 +1006,16 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.outline,
   },
   reformatChipText: { color: Colors.inkSoft, fontSize: 13, fontWeight: '600' },
+  editRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
+  editInput: {
+    flex: 1, height: 40, borderRadius: 12, paddingHorizontal: 14,
+    backgroundColor: Colors.chipBg, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.outline,
+    color: Colors.ink, fontSize: 14,
+  },
+  editSend: {
+    width: 40, height: 40, borderRadius: 12, backgroundColor: Colors.brand,
+    alignItems: 'center', justifyContent: 'center',
+  },
   flexBtn: { flex: 1 },
   saveBtn: { marginTop: 10 },
   saveGrad: {

@@ -7,7 +7,7 @@
 import { deviceId, signOut } from './auth';
 import { FUNCTIONS_URL, SUPABASE_ANON_KEY, supabase } from './supabase';
 
-export type PolishStyle = 'cleanup' | 'message' | 'structured' | 'email' | 'notes' | 'auto';
+export type PolishStyle = 'cleanup' | 'message' | 'structured' | 'email' | 'notes' | 'auto' | 'instruct';
 
 export interface PolishResult {
   ok: boolean;
@@ -18,7 +18,11 @@ export interface PolishResult {
   message?: string;
 }
 
-export async function polish(text: string, style: PolishStyle = 'cleanup'): Promise<PolishResult> {
+export async function polish(
+  text: string,
+  style: PolishStyle = 'cleanup',
+  instruction?: string,
+): Promise<PolishResult> {
   const { data } = await supabase.auth.getSession();
   const jwt = data?.session?.access_token;
   if (!jwt) return { ok: false, error: 'signed_out' };
@@ -35,6 +39,7 @@ export async function polish(text: string, style: PolishStyle = 'cleanup'): Prom
       body: JSON.stringify({
         text,
         style,
+        ...(instruction ? { instruction } : {}),
         device_id: await deviceId(),
         platform: 'mobile',
       }),
