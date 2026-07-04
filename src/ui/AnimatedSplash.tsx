@@ -7,6 +7,7 @@
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, StyleSheet, Text, View } from 'react-native';
+import { Colors } from '@/theme/colors';
 
 // Keep the native splash up until our overlay has rendered its first frame.
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -56,7 +57,7 @@ export function AnimatedSplash({ children }: { children: React.ReactNode }) {
             }}
           >
             <Text style={styles.wordmark}>
-              My<Text style={{ color: '#9A9AA2' }}>nah</Text>
+              My<Text style={{ color: Colors.brand }}>nah</Text>
             </Text>
             <Text style={styles.tagline}>speak it. send it.</Text>
           </Animated.View>
