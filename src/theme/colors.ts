@@ -79,6 +79,10 @@ export const brandGradient = ['#FFFFFF', '#C9C9D0', '#8E8E97'] as const;
 /** The mic / "tap to talk" gradient — monochrome (light → mid gray), the hero. */
 export const micGradient = ['#F2F2F5', '#9A9AA2'] as const;
 
+/** The MAIN mic button keeps its original colour — the one deliberate pop in the
+ *  otherwise monochrome UI (purple → blue). Used only by the hero MicButton. */
+export const heroMicGradient = ['#8B5CF6', '#5FA8FF'] as const;
+
 export const Radius = {
   card: 22,
   chip: 12,

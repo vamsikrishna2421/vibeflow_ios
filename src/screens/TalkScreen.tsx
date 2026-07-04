@@ -25,7 +25,7 @@ import { getItem, setItem } from '@/store/appGroup';
 import { hostAppFor } from '@/store/hostApps';
 import { polish } from '@/services/polish';
 import { useAuth } from '@/hooks/useAuth';
-import { Colors, Radius, micGradient } from '@/theme/colors';
+import { Colors, Radius, micGradient, heroMicGradient } from '@/theme/colors';
 import { Badge, GhostButton, haptic } from '@/ui/kit';
 import {
   addFlowStatusListener,
@@ -754,7 +754,7 @@ function MicButton({
       <Animated.View style={{ transform: [{ scale }] }}>
         <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={listening ? 'Stop' : 'Start dictation'}>
           <LinearGradient
-            colors={listening ? ['#E54749', '#FF7A6B'] : [...micGradient]}
+            colors={listening ? ['#E54749', '#FF7A6B'] : [...heroMicGradient]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.mic}
@@ -868,7 +868,7 @@ const styles = StyleSheet.create({
   bootSub: { color: Colors.inkFaint, fontSize: 14.5, lineHeight: 21, textAlign: 'center', marginTop: 14, paddingHorizontal: 6 },
 
   micArea: { width: 150, height: 150, alignItems: 'center', justifyContent: 'center' },
-  ring: { position: 'absolute', width: 120, height: 120, borderRadius: 60, backgroundColor: Colors.brand },
+  ring: { position: 'absolute', width: 120, height: 120, borderRadius: 60, backgroundColor: '#7C5CFF' },
   mic: { width: 116, height: 116, borderRadius: 58, alignItems: 'center', justifyContent: 'center' },
 
   wave: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 50, marginTop: 22 },
