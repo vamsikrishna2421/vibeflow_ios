@@ -11,47 +11,51 @@ import { Appearance } from 'react-native';
 
 import { getItem } from '../store/appGroup';
 
+// MONOCHROME preview — neutral grays + white ink, matching the Mynah logo's
+// black/white/gray world. The purple/teal are gone; the only warmth is a single
+// restrained gold (`amber`) borrowed from the logo's beak, used sparingly for
+// the recording pulse + Pro touches. `brand` (the primary accent) is near-white.
 const DARK = {
-  background: '#0B0A14',
-  surface: '#120F18',
-  surfaceVariant: '#1A1726',
-  outline: '#2A2740',
+  background: '#0A0A0C',
+  surface: '#131316',
+  surfaceVariant: '#1C1C21',
+  outline: '#2C2C33',
 
   ink: '#FFFFFF',
-  inkSoft: '#A7A3C2',
-  inkFaint: '#6E6A8A',
+  inkSoft: '#A6A6AE',
+  inkFaint: '#6C6C76',
 
-  brand: '#7C5CFF',
-  accentRed: '#E54749',
-  success: '#43E6C1',
-  amber: '#F5B544',
+  brand: '#ECECF1',       // near-white — primary accent (buttons, active, links)
+  accentRed: '#CC5F60',   // muted red — recording / destructive (functional only)
+  success: '#C4CBCF',     // neutral light — success/checks
+  amber: '#E3B24E',       // the logo's gold — one restrained warm accent (Pro, pulse)
 
   // Semantic extras (kept in both palettes)
   hairline: 'rgba(255,255,255,0.08)',
   chipBg: 'rgba(255,255,255,0.06)',
-  statInner: '#151022',
+  statInner: '#141418',
   karaokeDim: 'rgba(255,255,255,0.55)',
 };
 
 const LIGHT: typeof DARK = {
-  background: '#F5F4FA',
+  background: '#F4F4F6',
   surface: '#FFFFFF',
-  surfaceVariant: '#EFEDF7',
-  outline: '#DCD8E8',
+  surfaceVariant: '#ECECEF',
+  outline: '#DADADE',
 
-  ink: '#171226',
-  inkSoft: '#544E6B',
-  inkFaint: '#8B85A0',
+  ink: '#17171A',
+  inkSoft: '#55555E',
+  inkFaint: '#8A8A93',
 
-  brand: '#6A48F5',
-  accentRed: '#DC3B3D',
-  success: '#0FA47F',
-  amber: '#C98F0A',
+  brand: '#1C1C20',       // near-black — primary accent on light
+  accentRed: '#C24B4C',
+  success: '#5D6B65',
+  amber: '#B98A2A',
 
-  hairline: 'rgba(23,18,38,0.08)',
-  chipBg: 'rgba(23,18,38,0.05)',
+  hairline: 'rgba(23,23,26,0.08)',
+  chipBg: 'rgba(23,23,26,0.05)',
   statInner: '#FFFFFF',
-  karaokeDim: 'rgba(23,18,38,0.5)',
+  karaokeDim: 'rgba(23,23,26,0.5)',
 };
 
 function resolveScheme(): 'light' | 'dark' {
@@ -69,11 +73,11 @@ export const isLight = themeName === 'light';
 
 export const Colors = isLight ? LIGHT : DARK;
 
-/** The brand gradient (purple → indigo → sky) — logo, active states, AI effects. */
-export const brandGradient = ['#A855F7', '#7C5CFF', '#56B6FF'] as const;
+/** Brand gradient — monochrome (white → gray). Logo, active states, AI effects. */
+export const brandGradient = ['#FFFFFF', '#C9C9D0', '#8E8E97'] as const;
 
-/** The mic / "tap to talk" gradient — purple → blue (the AI hero). */
-export const micGradient = ['#8B5CF6', '#5FA8FF'] as const;
+/** The mic / "tap to talk" gradient — monochrome (light → mid gray), the hero. */
+export const micGradient = ['#F2F2F5', '#9A9AA2'] as const;
 
 export const Radius = {
   card: 22,

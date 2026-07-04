@@ -212,7 +212,7 @@ export function SettingsScreen() {
       <Card padded={false} style={styles.group}>
         <ToggleRow
           icon="chatbox-ellipses-outline"
-          tint="#7C5CFF"
+          tint={Colors.brand}
           label="Spoken punctuation"
           subtitle="Say ‘comma’, ‘period’, ‘question mark’"
           value={settings.curation.spokenPunctuation}
@@ -335,7 +335,7 @@ export function SettingsScreen() {
       <Card padded={false} style={styles.group}>
         <NavRow
           icon="albums-outline"
-          tint="#7C5CFF"
+          tint={Colors.brand}
           label="Snippets"
           value={String(snippets.length)}
           onPress={() => push('snippets')}
