@@ -16,7 +16,7 @@ import Speech
 ///   status      ──App Group + Darwin status──▶ keyboard animates the mic
 ///   "utteranceFinal"/"flowStatus" events ──▶ JS (history + Live Activity text)
 public class VibeflowFlowSessionModule: Module {
-  private let appGroup = "group.com.vibeflow.app"
+  private let appGroup = "group.com.vibeflow.dictation"
   static let toggleName = "com.vibeflow.flow.toggle"
   static let resultName = "com.vibeflow.flow.result"
   static let statusName = "com.vibeflow.flow.status"

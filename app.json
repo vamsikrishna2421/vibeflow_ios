@@ -21,12 +21,12 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.vibeflow.app",
+      "bundleIdentifier": "com.vibeflow.dictation",
       "buildNumber": "1.0.20",
       "appleTeamId": "33348G2388",
       "entitlements": {
         "com.apple.security.application-groups": [
-          "group.com.vibeflow.app"
+          "group.com.vibeflow.dictation"
         ]
       },
       "infoPlist": {
@@ -103,11 +103,11 @@
             "ios": {
               "appExtensions": [
                 {
-                  "bundleIdentifier": "com.vibeflow.app.keyboard",
+                  "bundleIdentifier": "com.vibeflow.dictation.keyboard",
                   "targetName": "VibeFlowKeyboard",
                   "entitlements": {
                     "com.apple.security.application-groups": [
-                      "group.com.vibeflow.app"
+                      "group.com.vibeflow.dictation"
                     ]
                   }
                 }

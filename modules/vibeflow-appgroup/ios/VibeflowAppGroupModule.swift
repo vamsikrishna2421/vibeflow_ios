@@ -8,7 +8,7 @@ import ExpoModulesCore
 /// but it's intentionally generic and stable — the *content* it stores is decided
 /// in JS, so the hand-off behaviour stays OTA-updatable.
 public class VibeflowAppGroupModule: Module {
-  private let appGroup = "group.com.vibeflow.app"
+  private let appGroup = "group.com.vibeflow.dictation"
   private var store: UserDefaults? { UserDefaults(suiteName: appGroup) }
 
   public func definition() -> ModuleDefinition {
