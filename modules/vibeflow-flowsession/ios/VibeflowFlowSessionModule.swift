@@ -166,6 +166,16 @@ public class VibeflowFlowSessionModule: Module {
     let request = SFSpeechAudioBufferRecognitionRequest()
     request.shouldReportPartialResults = true
     if #available(iOS 16, *) { request.addsPunctuation = true }
+    // Bias recognition toward the user's vocabulary (name, job title, custom terms)
+    // shared from the app via the App Group — the same list that feeds the keyboard's
+    // dictionary. Brings the in-app mic's contextualStrings priming to the keyboard's
+    // native Flow-Session path so names/jargon aren't misheard while dictating anywhere.
+    if let json = group?.string(forKey: "kbd_learned_words"),
+       let data = json.data(using: .utf8),
+       let words = try? JSONDecoder().decode([String].self, from: data) {
+      let bias = Array(words.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.prefix(100))
+      if !bias.isEmpty { request.contextualStrings = bias }
+    }
     lastTranscript = ""
     self.request = request
     utteranceActive = true
