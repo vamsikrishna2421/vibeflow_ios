@@ -38,12 +38,15 @@ jobs:
       - name: Install JS dependencies
         run: npm install --no-audit --no-fund
       - name: Install CocoaPods
-        # Pin to the version that generated Podfile.lock (local prebuild uses
-        # 1.17.0; the runner ships 1.16.2, whose podspec checksums differ →
-        # "could not find compatible versions for ExpoModulesWorklets").
+        # Fresh-resolve pods on the runner: Expo's local podspecs evaluate
+        # machine-dependently, so a Podfile.lock written on another machine can
+        # checksum-mismatch here ("could not find compatible versions for
+        # ExpoModulesWorklets") — with pod versions pinned by node_modules anyway,
+        # dropping the lockfile is deterministic enough. CocoaPods pinned to match
+        # local tooling.
         run: |
           sudo gem install cocoapods -v 1.17.0 --no-document
-          cd ios && pod install
+          cd ios && rm -f Podfile.lock && pod install
       - name: fastlane beta (sign + build + upload)
         run: cd ios && fastlane beta
       - name: Upload logs on failure
