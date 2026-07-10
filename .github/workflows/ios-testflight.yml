@@ -1,13 +1,8 @@
-# Build the iOS app (app + keyboard + widget extensions) on GitHub's free macOS
-# runner and upload to TestFlight — no Mac, no EAS credits, no Apple password.
-#
-# Signing: Xcode "cloud signing" with an App Store Connect API key
-# (-allowProvisioningUpdates + -authenticationKey*): certificates and the three
-# provisioning profiles are created/managed automatically under the team, exactly
-# like Xcode Cloud does. Secrets required (repo → Settings → Secrets → Actions):
-#   ASC_KEY_ID     — App Store Connect API key ID
-#   ASC_ISSUER_ID  — issuer id (UUID)
-#   ASC_KEY_P8     — full contents of the .p8 private key
+# Build the iOS app (app + keyboard + widget) on GitHub's free macOS runner and
+# upload to TestFlight via fastlane — no Mac, no EAS credits, no Apple password.
+# fastlane creates the distribution cert + App Store profiles for all 3 targets
+# from the App Store Connect API key (App Store profiles need no registered
+# devices). Secrets: ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8.
 name: iOS TestFlight
 
 on:
@@ -23,94 +18,27 @@ jobs:
   build:
     runs-on: macos-15
     timeout-minutes: 90
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-
       - name: Install JS dependencies
         run: npm install --no-audit --no-fund
-
-      - name: Install CocoaPods dependencies
-        run: |
-          cd ios
-          pod install
-
-      - name: Write App Store Connect API key
-        env:
-          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-        run: |
-          mkdir -p "$HOME/private_keys"
-          printf '%s' "$ASC_KEY_P8" > "$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8"
-
-      - name: Archive (automatic cloud signing)
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-        run: |
-          set -o pipefail
-          xcodebuild archive \
-            -workspace ios/VibeFlow.xcworkspace \
-            -scheme VibeFlow \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -archivePath build/VibeFlow.xcarchive \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-            CODE_SIGN_STYLE=Automatic \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            | tee build/xcodebuild-archive.log | grep -E "error:|warning: Code|Signing|▸|\*\* " || true
-          # fail the step if the archive didn't materialise
-          test -d build/VibeFlow.xcarchive
-
-      - name: Export IPA
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-        run: |
-          set -o pipefail
-          cat > build/ExportOptions.plist <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key><string>app-store-connect</string>
-            <key>teamID</key><string>33348G2388</string>
-            <key>signingStyle</key><string>automatic</string>
-            <key>uploadSymbols</key><true/>
-          </dict>
-          </plist>
-          PLIST
-          xcodebuild -exportArchive \
-            -archivePath build/VibeFlow.xcarchive \
-            -exportPath build/ipa \
-            -exportOptionsPlist build/ExportOptions.plist \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-            | tee build/xcodebuild-export.log
-          ls -la build/ipa
-
-      - name: Upload to TestFlight
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-        run: |
-          IPA=$(ls build/ipa/*.ipa | head -1)
-          echo "uploading $IPA"
-          xcrun altool --upload-app -f "$IPA" -t ios \
-            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
-
+      - name: Install CocoaPods
+        run: cd ios && pod install
+      - name: fastlane beta (sign + build + upload)
+        run: cd ios && fastlane beta
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: xcodebuild-logs
-          path: build/*.log
+          name: build-logs
+          path: |
+            ios/build/*.log
+            ~/Library/Logs/gym/*.log
           if-no-files-found: ignore
