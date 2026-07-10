@@ -48,7 +48,9 @@ jobs:
           sudo gem install cocoapods -v 1.17.0 --no-document
           cd ios && rm -f Podfile.lock && pod install
       - name: fastlane beta (sign + build + upload)
-        run: cd ios && fastlane beta
+        # fastlane lives at the REPO ROOT (fastlane/), not ios/fastlane — expo
+        # prebuild regenerates ios/ and silently deleted it from there once.
+        run: fastlane beta
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
