@@ -150,7 +150,11 @@ export function PersonalizedDemoScreen() {
       setOutputs({});
       setActiveStyle('email');
       setStep('result');
-      polishStyle('email', t); // eagerly polish the default tab
+      // Eagerly polish the default (email) tab — but a beat AFTER the screen
+      // transition + audio-session teardown settle. Firing the first network call
+      // mid-transition is what could stall it; the spinner shows during this wait,
+      // so the small defer is invisible. (Timeout + retry in polishStyle back it up.)
+      setTimeout(() => polishStyle('email', t), 500);
     },
   });
   const listening = dictation.state === 'listening';
@@ -176,14 +180,19 @@ export function PersonalizedDemoScreen() {
 
   async function polishStyle(style: Style, text: string) {
     setOutputs((o) => ({ ...o, [style]: { text: '', kind: 'canned', loading: true } }));
-    // A THROWN polish() (network blip / parse error) must never leave the tab stuck
-    // on "Polishing…" — fall back to the crafted preview so switching always resolves.
-    let r: Awaited<ReturnType<typeof polish>> | null = null;
-    try {
-      r = await polish(text, style as PolishStyle);
-    } catch {
-      r = null;
-    }
+    // A THROWN or STALLED polish() must never leave the tab stuck on "Polishing…".
+    // Each attempt is bounded (12s); we retry ONCE on a transient network/timeout blip —
+    // the eagerly-fired first request (email) is the one prone to stalling mid-transition —
+    // then fall back to the crafted preview so every tab always resolves.
+    const attempt = async () => {
+      try {
+        return await polish(text, style as PolishStyle, undefined, 12000);
+      } catch {
+        return null;
+      }
+    };
+    let r = await attempt();
+    if (r === null || (!r.ok && r.error === 'network')) r = await attempt();
     setOutputs((o) => ({
       ...o,
       [style]:
