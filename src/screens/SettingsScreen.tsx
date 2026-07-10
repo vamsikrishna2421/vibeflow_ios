@@ -181,13 +181,20 @@ export function SettingsScreen() {
               Sign in to unlock 50 free AI polishes a week — grammar, punctuation and
               formatting, powered by VibeFlow's cloud.
             </Text>
-            <Pressable disabled={authBusy} onPress={runAuth(signInWithApple)} style={({ pressed }) => [styles.appleBtn, pressed && { opacity: 0.85 }]}>
-              <Ionicons name="logo-apple" size={18} color="#000" />
-              <Text style={styles.appleBtnText}>Continue with Apple</Text>
-            </Pressable>
-            <Pressable disabled={authBusy} onPress={runAuth(signInWithGoogle)} style={({ pressed }) => [styles.googleBtn, pressed && { opacity: 0.85 }]}>
-              <Ionicons name="logo-google" size={16} color={Colors.ink} />
-              <Text style={styles.googleBtnText}>Continue with Google</Text>
+            {/* Apple sign-in is iOS-only (native module absent on Android). */}
+            {Platform.OS === 'ios' ? (
+              <Pressable disabled={authBusy} onPress={runAuth(signInWithApple)} style={({ pressed }) => [styles.appleBtn, pressed && { opacity: 0.85 }]}>
+                <Ionicons name="logo-apple" size={18} color="#000" />
+                <Text style={styles.appleBtnText}>Continue with Apple</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              disabled={authBusy}
+              onPress={runAuth(signInWithGoogle)}
+              style={({ pressed }) => [Platform.OS === 'ios' ? styles.googleBtn : styles.appleBtn, pressed && { opacity: 0.85 }]}
+            >
+              <Ionicons name="logo-google" size={16} color={Platform.OS === 'ios' ? Colors.ink : '#000'} />
+              <Text style={Platform.OS === 'ios' ? styles.googleBtnText : styles.appleBtnText}>Continue with Google</Text>
             </Pressable>
           </>
         )}

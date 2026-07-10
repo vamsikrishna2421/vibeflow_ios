@@ -50,3 +50,4 @@ credentials/
 ios/Pods/
 ios/build/
 ios/DerivedData/
+modules/*/android/build/

@@ -18,7 +18,7 @@ import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/hooks/useAuth';
 import { useDictation } from '@/hooks/useDictation';
@@ -283,7 +283,9 @@ export function PersonalizedDemoScreen() {
 
   async function signInAndPolish() {
     try {
-      await signInWithApple();
+      // Apple sign-in only exists on iOS; Android uses the Google OAuth flow.
+      if (Platform.OS === 'ios') await signInWithApple();
+      else await signInWithGoogle();
       haptic.success();
       if (raw) polishStyle(activeStyle, raw); // re-polish current tab for real
     } catch {
@@ -306,13 +308,22 @@ export function PersonalizedDemoScreen() {
           </Text>
         </View>
 
-        <Pressable disabled={authBusy} onPress={runAuth(signInWithApple)} style={({ pressed }) => [styles.appleBtn, pressed && { opacity: 0.85 }]}>
-          <Ionicons name="logo-apple" size={19} color="#000" />
-          <Text style={styles.appleBtnText}>Continue with Apple</Text>
-        </Pressable>
-        <Pressable disabled={authBusy} onPress={runAuth(signInWithGoogle)} style={({ pressed }) => [styles.googleBtn, pressed && { opacity: 0.85 }]}>
-          <Ionicons name="logo-google" size={17} color={Colors.ink} />
-          <Text style={styles.googleBtnText}>Continue with Google</Text>
+        {/* Apple sign-in is iOS-only: the native module doesn't exist on Android
+            (the button would throw), and SIWA is an App Store rule, not a Play one. */}
+        {Platform.OS === 'ios' ? (
+          <Pressable disabled={authBusy} onPress={runAuth(signInWithApple)} style={({ pressed }) => [styles.appleBtn, pressed && { opacity: 0.85 }]}>
+            <Ionicons name="logo-apple" size={19} color="#000" />
+            <Text style={styles.appleBtnText}>Continue with Apple</Text>
+          </Pressable>
+        ) : null}
+        {/* On Android, Google is the only provider → give it the primary (white) look. */}
+        <Pressable
+          disabled={authBusy}
+          onPress={runAuth(signInWithGoogle)}
+          style={({ pressed }) => [Platform.OS === 'ios' ? styles.googleBtn : styles.appleBtn, pressed && { opacity: 0.85 }]}
+        >
+          <Ionicons name="logo-google" size={17} color={Platform.OS === 'ios' ? Colors.ink : '#000'} />
+          <Text style={Platform.OS === 'ios' ? styles.googleBtnText : styles.appleBtnText}>Continue with Google</Text>
         </Pressable>
 
         {authBusy ? <ActivityIndicator style={{ marginTop: 16 }} color={Colors.brand} /> : null}
@@ -502,7 +513,7 @@ export function PersonalizedDemoScreen() {
 
       {out?.kind === 'canned' && !signedIn ? (
         <Pressable onPress={signInAndPolish} style={styles.signInNudge}>
-          <Ionicons name="logo-apple" size={15} color={Colors.ink} />
+          <Ionicons name={Platform.OS === 'ios' ? 'logo-apple' : 'logo-google'} size={15} color={Colors.ink} />
           <Text style={styles.signInNudgeText}>Sign in to polish your own words</Text>
         </Pressable>
       ) : null}

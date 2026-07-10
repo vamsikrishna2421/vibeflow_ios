@@ -1,6 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
 import React, { useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -14,7 +15,7 @@ import { checkProEntitlement, configureRevenueCat, onProChange } from '@/service
 import { useStore } from '@/store';
 import { useAuth } from '@/hooks/useAuth';
 import { deviceId } from '@/services/auth';
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/services/supabase';
+import { SUPABASE_ANON_KEY, SUPABASE_URL, supabase } from '@/services/supabase';
 import * as VibeKeyboard from '@/services/keyboard';
 
 import { flowSessionActive } from './modules/vibeflow-flowsession';
@@ -82,11 +83,12 @@ function EntitlementSync() {
 function KeyboardBridge() {
   const { session } = useAuth();
   const { premium } = useStore();
+
   useEffect(() => {
     if (!VibeKeyboard.isAvailable) return; // no native keyboard in this build → nothing to sync
     let alive = true;
-    (async () => {
-      const jwt = session?.access_token ?? '';
+
+    const sync = async (jwt: string, signedIn: boolean) => {
       let did = '';
       try {
         did = await deviceId();
@@ -95,10 +97,27 @@ function KeyboardBridge() {
       }
       if (!alive) return;
       VibeKeyboard.setAuth(jwt, SUPABASE_URL, SUPABASE_ANON_KEY, did);
-      VibeKeyboard.setPolishEnabled(!!session); // signed-in = free quota or Pro
-    })();
+      VibeKeyboard.setPolishEnabled(signedIn); // signed-in = free quota or Pro
+    };
+
+    sync(session?.access_token ?? '', !!session);
+
+    // The keyboard runs on a SNAPSHOT of the JWT — Supabase access tokens expire
+    // after ~1h, so a keyboard used hours after the app last ran would 401 on
+    // Format. On every foreground, getSession() refreshes an expired token and we
+    // re-share the fresh one. (TOKEN_REFRESHED while running is covered by the
+    // `session` dependency above.)
+    const onAppState = (state: string) => {
+      if (state !== 'active') return;
+      supabase.auth.getSession().then(({ data }) => {
+        if (data?.session?.access_token) sync(data.session.access_token, true);
+      });
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+
     return () => {
       alive = false;
+      sub.remove();
     };
   }, [session, premium]);
   return null;
