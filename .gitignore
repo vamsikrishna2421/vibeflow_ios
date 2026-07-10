@@ -51,3 +51,4 @@ ios/Pods/
 ios/build/
 ios/DerivedData/
 modules/*/android/build/
+eas-local-out/
