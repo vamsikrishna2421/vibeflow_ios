@@ -1,5 +1,46 @@
 # Moving VibeFlow iOS to the new Apple developer account — playbook
 
+## 🎉 DONE 2026-07-09 — first TestFlight build LIVE on the new account
+- Build **1.0.20** built on GitHub Actions (Xcode 26.3), uploaded + processed **VALID**
+  on the new account's app **VibeFlow Dictation (6787420544)**. Carries the native
+  long-dictation fix (flowsession segment chaining) + keyboard fixes.
+- TestFlight internal group **"VibeFlow Team"** created, build assigned, tester
+  **vamsy.24@icloud.com** added → installable via the TestFlight app.
+- Working CI signing (took 11 attempts): MANUAL App Store signing (device-less
+  account can't use automatic); ONE stable Apple Distribution cert imported from
+  secrets DIST_P12_B64/DIST_P12_PW (never `cert`-created per run → avoids the
+  2-cert cap); Xcode 26.3 (Expo SDK 57 needs Swift 6.2 + `weak let`);
+  aps-environment=production. Full detail in memory `vibeflow-mobile-keyboard-and-ota-state`.
+- Next iOS build: bump app.json ios.buildNumber → `expo prebuild -p ios` → commit ios/ → tag `ios-vX`.
+
+## ✅ EXECUTED 2026-07-09 (autonomous run)
+- ASC API key wired: eas.json submit + GitHub Actions secrets (key file gitignored, never committed).
+- **Widget App ID registered** (com.vibeflow.dictation.widget) → all 3 App IDs now exist.
+- Xcode Cloud DEAD END for now: first-workflow onboarding requires Xcode (this Mac has none).
+  → **Pivoted to GitHub Actions free macOS runners** (repo is PUBLIC = unlimited minutes):
+  `.github/workflows/ios-testflight.yml` — cloud automatic signing via the ASC API key
+  (same mechanism as Xcode Cloud). Trigger: push an `ios-v*` tag (or workflow_dispatch once
+  the file lands on `main`). First run: ios-v1.0.20 (github.com/vamsikrishna2421/vibeflow_ios/actions).
+- Committed prebuilt `ios/` (CNG) + workspace stub + ci_scripts (kept for future Xcode Cloud).
+- Agreements recon: **Paid Apps = "New" (unsigned)** and ASC requires legal-entity update BEFORE
+  signing → the user's in-flight country-change (US→India, docs submitted to Apple Support) is
+  correctly sequenced: entity change FIRST, then sign Paid Apps as India entity (PAN/bank then).
+- Country change: user already has an Apple Support ticket; uploading PAN/passport themselves.
+
+## iOS build pipeline — final design (GitHub Actions + fastlane)
+Trigger: push an `ios-v*` tag. Workflow `.github/workflows/ios-testflight.yml` on `macos-15`:
+npm install → pod install → `cd ios && fastlane beta`. Fastfile (`ios/fastlane/Fastfile`)
+loads the ASC API key, creates a dedicated keychain + distribution cert (`cert`), makes an
+App Store profile per target (`sigh` × app/keyboard/widget — App Store profiles need NO
+devices, which is why plain xcodebuild automatic signing failed), switches each target to
+manual signing, `build_app` (app-store export), `upload_to_testflight`. Secrets in the repo:
+ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_P8 (set via API, encrypted). Free (public repo).
+- Attempt 1 (ios-v1.0.20, plain xcodebuild): FAILED at Archive — "no devices / no Development
+  profile". Diagnosed via the raw job log. Pivoted to fastlane.
+- Attempt 2 (ios-v1.0.20-b2, fastlane): building.
+Bump `ios.buildNumber` in app.json + re-run `expo prebuild -p ios` (commit ios/) for each new
+TestFlight build, then tag `ios-vX`.
+
 Recon date: 2026-07-09 (verified live in Chrome + Apple docs research with citations).
 
 ## TL;DR — there is NO app transfer to do 🎉
