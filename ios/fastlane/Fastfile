@@ -1,16 +1,33 @@
 # Build + upload VibeFlow to TestFlight from a clean CI runner, no registered
 # devices and no interactive Apple login.
 #
-# Approach: ensure a DISTRIBUTION certificate exists (fastlane `cert`), then let
-# xcodebuild do AUTOMATIC signing with `-allowProvisioningUpdates` + the App Store
-# Connect API key. Xcode then self-configures each target's App ID capabilities and
-# mints matching App Store provisioning profiles for all three targets (app /
-# keyboard / widget) — no devices needed. (Attempt 1 failed only because there was
-# NO distribution cert, so automatic signing fell back to a Development profile,
-# which requires a registered device on this fresh account.)
+# Signing strategy: MANUAL, with App Store distribution provisioning profiles.
+# Why not automatic: on this device-less account, automatic signing during
+# `xcodebuild archive` insists on creating an iOS *Development* profile, which
+# Apple refuses without a registered device ("Your team has no devices from which
+# to generate a provisioning profile"). App Store *distribution* profiles need NO
+# devices, so we create them explicitly (sigh, force-regenerated against the fresh
+# distribution cert) and pin each of the three targets to its profile.
 default_platform(:ios)
 
 TEAM_ID = "33348G2388".freeze
+
+# bundle id => Xcode target name (verified against project.pbxproj; a wrong name
+# makes update_code_signing_settings a silent no-op, so keep these exact).
+TARGET_FOR = {
+  "com.vibeflow.dictation"          => "VibeFlow",
+  "com.vibeflow.dictation.keyboard" => "VibeFlowKeyboard",
+  "com.vibeflow.dictation.widget"   => "VibeFlowWidgets",
+}.freeze
+BUNDLES = TARGET_FOR.keys.freeze
+
+# Explicit, known profile names (avoids parsing sigh's ENV output). Distinct from
+# the pre-existing "<bundle> AppStore" profiles so force-create is unambiguous.
+PROFILE_NAME = {
+  "com.vibeflow.dictation"          => "VibeFlow App AppStore CI",
+  "com.vibeflow.dictation.keyboard" => "VibeFlow Keyboard AppStore CI",
+  "com.vibeflow.dictation.widget"   => "VibeFlow Widget AppStore CI",
+}.freeze
 
 platform :ios do
   desc "Build and upload to TestFlight"
@@ -26,6 +43,7 @@ platform :ios do
     # Dedicated keychain for the distribution cert (CI has none by default).
     keychain_name = "vibeflow-ci.keychain"
     keychain_password = "ci-local-#{Time.now.to_i}"
+    keychain_path = File.expand_path("~/Library/Keychains/#{keychain_name}-db")
     create_keychain(
       name: keychain_name,
       password: keychain_password,
@@ -35,25 +53,39 @@ platform :ios do
       lock_when_sleeps: false,
     )
 
-    # Reuse an existing distribution certificate or create one, installed into the
-    # CI keychain so automatic distribution signing has an identity to use.
+    # Distribution certificate (Apple Distribution) into the CI keychain.
     cert(
       api_key: api_key,
-      keychain_path: File.expand_path("~/Library/Keychains/#{keychain_name}-db"),
+      keychain_path: keychain_path,
       keychain_password: keychain_password,
     )
 
-    # gym (build_app) in this fastlane version has NO `api_key` option, so it won't
-    # forward the ASC auth flags to xcodebuild on its own (attempt 4 proved passing
-    # api_key here is a hard error). We inject the three authentication flags into
-    # xcodebuild ourselves via xcargs/export_xcargs. Combined with
-    # -allowProvisioningUpdates this lets xcodebuild reach the portal to create the
-    # App Store provisioning profiles for all three targets, no registered devices.
-    key_path = File.expand_path("~/asc_authkey.p8")
-    File.write(key_path, ENV["ASC_KEY_P8"])
-    auth = "-authenticationKeyPath #{key_path} " \
-           "-authenticationKeyID #{ENV['ASC_KEY_ID']} " \
-           "-authenticationKeyIssuerID #{ENV['ASC_ISSUER_ID']}"
+    # Fresh App Store profile per target, bound to the cert we just installed.
+    # force: true regenerates (the pre-existing profiles went INVALID when the old
+    # orphan certs were revoked), so each profile references the current cert and
+    # includes the App ID's current capabilities (App Groups / Push / Sign in).
+    BUNDLES.each do |bid|
+      get_provisioning_profile(
+        api_key: api_key,
+        app_identifier: bid,
+        provisioning_name: PROFILE_NAME[bid],
+        force: true,
+        fail_on_name_taken: false,
+      )
+    end
+
+    # Pin each target to manual signing + its profile + the distribution identity.
+    BUNDLES.each do |bid|
+      update_code_signing_settings(
+        use_automatic_signing: false,
+        path: "VibeFlow.xcodeproj",
+        team_id: TEAM_ID,
+        targets: [TARGET_FOR[bid]],
+        code_sign_identity: "Apple Distribution",
+        profile_name: PROFILE_NAME[bid],
+        bundle_identifier: bid,
+      )
+    end
 
     build_app(
       workspace: "VibeFlow.xcworkspace",
@@ -62,16 +94,12 @@ platform :ios do
       export_method: "app-store",
       output_directory: "build",
       clean: true,
-      # Archive: automatic signing; the auth flags give -allowProvisioningUpdates the
-      # portal credentials it needs to create profiles + configure capabilities.
-      xcargs: "-allowProvisioningUpdates #{auth} DEVELOPMENT_TEAM=#{TEAM_ID}",
-      # Export (-exportArchive) also needs the credentials to fetch/install the
-      # distribution profiles; DEVELOPMENT_TEAM isn't a valid export setting here.
-      export_xcargs: "-allowProvisioningUpdates #{auth}",
       export_options: {
         method: "app-store",
         teamID: TEAM_ID,
-        signingStyle: "automatic",
+        signingStyle: "manual",
+        signingCertificate: "Apple Distribution",
+        provisioningProfiles: PROFILE_NAME,
       },
     )
 
