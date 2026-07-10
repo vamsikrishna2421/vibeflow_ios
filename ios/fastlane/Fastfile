@@ -8,6 +8,8 @@
 # to generate a provisioning profile"). App Store *distribution* profiles need NO
 # devices, so we create them explicitly (sigh, force-regenerated against the fresh
 # distribution cert) and pin each of the three targets to its profile.
+require "base64"
+
 default_platform(:ios)
 
 TEAM_ID = "33348G2388".freeze
@@ -43,7 +45,6 @@ platform :ios do
     # Dedicated keychain for the distribution cert (CI has none by default).
     keychain_name = "vibeflow-ci.keychain"
     keychain_password = "ci-local-#{Time.now.to_i}"
-    keychain_path = File.expand_path("~/Library/Keychains/#{keychain_name}-db")
     create_keychain(
       name: keychain_name,
       password: keychain_password,
@@ -53,12 +54,32 @@ platform :ios do
       lock_when_sleeps: false,
     )
 
-    # Distribution certificate (Apple Distribution) into the CI keychain.
-    cert(
-      api_key: api_key,
-      keychain_path: keychain_path,
+    # Import the STABLE distribution cert (.p12, from an encrypted GitHub secret)
+    # rather than creating one each run — per-run `cert` minted a throwaway cert
+    # whose key died with the runner, exhausting Apple's 2-cert cap. The p12 carries
+    # the private key, so signing works and CI never mints a certificate again.
+    p12_path = File.expand_path("~/vibeflow_dist.p12")
+    File.open(p12_path, "wb") { |f| f.write(Base64.decode64(ENV["DIST_P12_B64"])) }
+    import_certificate(
+      certificate_path: p12_path,
+      certificate_password: ENV["DIST_P12_PW"],
+      keychain_name: keychain_name,
       keychain_password: keychain_password,
     )
+
+    # Ensure the Apple WWDR G3 intermediate is in the CI keychain so codesign can
+    # build the full chain (create_keychain can shadow the system keychain).
+    wwdr_path = File.expand_path("~/AppleWWDRCAG3.cer")
+    sh("curl -fsSL --retry 3 https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer -o #{wwdr_path}")
+    begin
+      import_certificate(
+        certificate_path: wwdr_path,
+        keychain_name: keychain_name,
+        keychain_password: keychain_password,
+      )
+    rescue => e
+      UI.message("WWDR import note (may already be present): #{e}")
+    end
 
     # Fresh App Store profile per target, bound to the cert we just installed.
     # force: true regenerates (the pre-existing profiles went INVALID when the old
