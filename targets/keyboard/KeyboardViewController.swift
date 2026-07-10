@@ -107,6 +107,9 @@ final class KeyboardViewController: UIInputViewController {
     private var lastShiftTap: Date = .distantPast
     private var lastSpaceTap: Date = .distantPast
     private var backspaceTimer: Timer?
+    /// True right after a suggestion-accept inserted a trailing space — typing
+    /// punctuation next swallows it ("word ." → "word. ").
+    private var autoSpacePending = false
 
     /// Spell-check + strip rebuild are deferred off the keystroke path — doing them
     /// synchronously per key made fast typing drop letters.
@@ -478,6 +481,7 @@ final class KeyboardViewController: UIInputViewController {
         guard !word.isEmpty else { return }
         for _ in 0..<(word as NSString).length { textDocumentProxy.deleteBackward() }
         textDocumentProxy.insertText(replacement + " ")
+        autoSpacePending = true // typing punctuation next swallows this space
         learnCommittedWord(replacement)
         updateShiftForContext()
         updateSuggestions()
@@ -528,6 +532,7 @@ final class KeyboardViewController: UIInputViewController {
             rowsStack.addArrangedSubview(lastEmojiRow)
         }
         rowsStack.addArrangedSubview(functionRow())
+        updateShiftForContext() // e.g. ". " typed on the ?123 page → ABC arms shift
         applyShiftAppearance()
     }
 
@@ -773,6 +778,8 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func spaceTapped() {
+        autoSpacePending = false
+        capitalizeLoneI()
         autocorrectCurrentWord()
         learnCommittedWord(currentWord())
         let now = Date()
@@ -833,6 +840,18 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func insert(_ text: String) {
+        // Punctuation right after an accepted suggestion swallows the auto-space:
+        // "word ‸" + "." → "word. " (system-keyboard behavior), not "word .".
+        if autoSpacePending, text.count == 1, ".,!?;:".contains(text),
+           (textDocumentProxy.documentContextBeforeInput ?? "").hasSuffix(" ") {
+            autoSpacePending = false
+            textDocumentProxy.deleteBackward()
+            textDocumentProxy.insertText(text + " ")
+            updateShiftForContext()
+            scheduleSuggestions()
+            return
+        }
+        autoSpacePending = false
         // A single non-letter key (punctuation, return) ends the word in progress —
         // learn it exactly as the user left it.
         if page == .letters, text.count == 1, let ch = text.first, !ch.isLetter, ch != "'" {
@@ -844,12 +863,40 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func updateShiftForContext() {
-        guard shift != .locked, page == .letters else { return }
+        // NOTE: no `page == .letters` guard — the period key lives on the ?123 page,
+        // and gating on the page meant ". " typed there never armed the shift (the
+        // "no caps after full stop" bug). State updates on every page; rendering is
+        // page-guarded inside applyShiftAppearance.
+        guard shift != .locked else { return }
         let before = textDocumentProxy.documentContextBeforeInput ?? ""
-        let cap = before.isEmpty || before.hasSuffix("\n")
-            || before.hasSuffix(". ") || before.hasSuffix("! ") || before.hasSuffix("? ")
-        let want: ShiftState = cap ? .on : .off
+        let want: ShiftState
+        // Respect the host field's autocapitalization (like the system keyboard):
+        // email/username/code fields ask for none — forcing caps there is hostile.
+        switch textDocumentProxy.autocapitalizationType ?? .sentences {
+        case .none:
+            want = .off
+        case .allCharacters:
+            want = .on
+        case .words:
+            want = (before.isEmpty || before.hasSuffix(" ") || before.hasSuffix("\n")) ? .on : .off
+        default: // .sentences
+            want = (before.isEmpty || before.hasSuffix("\n")
+                || before.hasSuffix(". ") || before.hasSuffix("! ") || before.hasSuffix("? ")) ? .on : .off
+        }
         if want != shift { shift = want; applyShiftAppearance() }
+    }
+
+    /// Standalone "i" becomes "I" on space — the classic system-keyboard fix that
+    /// the 3-letter autocorrect floor misses.
+    private func capitalizeLoneI() {
+        guard !refusedCorrections.contains("i") else { return }
+        let before = textDocumentProxy.documentContextBeforeInput ?? ""
+        guard before.hasSuffix("i") else { return }
+        let prior = before.dropLast().last
+        if prior == nil || !(prior!.isLetter || prior! == "'") {
+            textDocumentProxy.deleteBackward()
+            textDocumentProxy.insertText("I")
+        }
     }
 
     // MARK: - Mic → dictation flow

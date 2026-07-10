@@ -25,6 +25,7 @@ import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
@@ -136,7 +137,7 @@ class VibeFlowKeyboardService : InputMethodService() {
   private var rootView: LinearLayout? = null
   private var rowsHost: LinearLayout? = null
   private var statusView: TextView? = null
-  private var micButton: TextView? = null
+  private var micButton: ImageView? = null
   private var formatButton: TextView? = null
   private var shiftKey: TextView? = null
   private val letterKeys = mutableListOf<TextView>()
@@ -223,12 +224,11 @@ class VibeFlowKeyboardService : InputMethodService() {
     }
     strip.addView(formatButton, LinearLayout.LayoutParams(dp(44), ViewGroup.LayoutParams.MATCH_PARENT).apply { marginEnd = dp(6) })
 
-    // Wispr-style prominent mic at the top-right (exactly like iOS).
-    micButton = TextView(this).apply {
-      text = "🎤"
-      textSize = 19f
-      gravity = Gravity.CENTER
-      setTextColor(Color.WHITE)
+    // Wispr-style prominent mic at the top-right (exactly like iOS) — a proper
+    // vector mic glyph (Material "mic", the WhatsApp-style shape), not an emoji.
+    micButton = ImageView(this).apply {
+      setImageResource(R.drawable.ic_mic)
+      scaleType = ImageView.ScaleType.CENTER
       background = rounded(BRAND, 16)
       outlineProvider = ViewOutlineProvider.BACKGROUND
       clipToOutline = true
@@ -272,6 +272,7 @@ class VibeFlowKeyboardService : InputMethodService() {
       }
     }
     host.addView(functionRow(), rowLp(height = dp(48), topMargin = dp(6)))
+    autoShiftIfSentenceStart() // e.g. ". " typed on ?123 → returning to ABC arms caps
     applyShiftAppearance()
   }
 
@@ -453,14 +454,33 @@ class VibeFlowKeyboardService : InputMethodService() {
     }
   }
 
-  /** Auto-capitalize at sentence starts: shift pops ON when the context asks for it. */
+  /**
+   * Auto-capitalize like Gboard: ask the FIELD via getCursorCapsMode, which honors
+   * its declared capitalization (sentences/words/characters) — so email, username
+   * and code fields (no cap flags) never get forced caps. Fields that aren't
+   * TYPE_CLASS_TEXT fall back to a local sentence heuristic.
+   * NOTE: no page guard — the period key lives on the ?123 page; state must update
+   * everywhere (rendering is safely page-scoped in applyShiftAppearance).
+   */
   private fun autoShiftIfSentenceStart() {
-    if (shift == Shift.LOCKED || page != Page.LETTERS) return
-    val before = currentInputConnection?.getTextBeforeCursor(3, 0)?.toString() ?: ""
-    val trimmed = before.trimEnd()
-    val afterSentence = before.endsWith(" ") &&
-      (trimmed.endsWith(".") || trimmed.endsWith("?") || trimmed.endsWith("!"))
-    val should = before.isEmpty() || trimmed.isEmpty() || afterSentence || before.endsWith("\n")
+    if (shift == Shift.LOCKED) return
+    val ic = currentInputConnection ?: return
+    val inputType = currentInputEditorInfo?.inputType ?: 0
+    val should: Boolean
+    if ((inputType and android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_TEXT) {
+      val capFlags = inputType and (
+        android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
+          android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS or
+          android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+        )
+      should = if (capFlags != 0) ic.getCursorCapsMode(inputType) != 0 else false
+    } else {
+      val before = ic.getTextBeforeCursor(3, 0)?.toString() ?: ""
+      val trimmed = before.trimEnd()
+      val afterSentence = before.endsWith(" ") &&
+        (trimmed.endsWith(".") || trimmed.endsWith("?") || trimmed.endsWith("!"))
+      should = before.isEmpty() || trimmed.isEmpty() || afterSentence || before.endsWith("\n")
+    }
     if (should != (shift == Shift.ON)) {
       shift = if (should) Shift.ON else Shift.OFF
       applyShiftAppearance()
@@ -470,6 +490,7 @@ class VibeFlowKeyboardService : InputMethodService() {
   // ── space / enter / switch ───────────────────────────────────────────────────
   private fun spaceTapped() {
     val now = System.currentTimeMillis()
+    capitalizeLoneI()
     // Double-space → ". " (with the space that was just typed replaced), like iOS.
     if (now - lastSpaceTapAt < DOUBLE_TAP_MS && pending.isNotEmpty() && pending.last() == ' ' &&
       pending.length >= 2 && pending[pending.length - 2].isLetterOrDigit()
@@ -480,8 +501,22 @@ class VibeFlowKeyboardService : InputMethodService() {
     } else {
       insert(" ")
     }
-    lastSpaceTapAt = now
-    autoShiftIfSentenceStart()
+    lastSpaceTapAt = now // insert() already re-derived the shift state
+  }
+
+  /** Standalone "i" becomes "I" when a space follows — the classic system fix. */
+  private fun capitalizeLoneI() {
+    val ic = currentInputConnection ?: return
+    val before = ic.getTextBeforeCursor(3, 0)?.toString() ?: return
+    if (!before.endsWith("i")) return
+    val prior = before.dropLast(1).lastOrNull()
+    if (prior == null || (!prior.isLetter() && prior != '\'')) {
+      ic.deleteSurroundingText(1, 0)
+      ic.commitText("I", 1)
+      if (pending.isNotEmpty() && pending.last() == 'i') {
+        pending.setCharAt(pending.length - 1, 'I')
+      }
+    }
   }
 
   private fun enter() {
@@ -491,8 +526,7 @@ class VibeFlowKeyboardService : InputMethodService() {
     if (action != EditorInfo.IME_ACTION_NONE && action != EditorInfo.IME_ACTION_UNSPECIFIED) {
       ic.performEditorAction(action)
     } else {
-      insert("\n")
-      autoShiftIfSentenceStart()
+      insert("\n") // insert() re-derives the shift state
     }
   }
 
@@ -509,6 +543,7 @@ class VibeFlowKeyboardService : InputMethodService() {
   private fun insert(text: String) {
     currentInputConnection?.commitText(text, 1)
     pending.append(text)
+    autoShiftIfSentenceStart() // every commit re-derives caps (typed, punct, dictated)
     updateFormatVisible()
   }
 
@@ -517,6 +552,7 @@ class VibeFlowKeyboardService : InputMethodService() {
     val sel = ic.getSelectedText(0)
     if (sel != null && sel.isNotEmpty()) ic.commitText("", 1) else ic.deleteSurroundingText(1, 0)
     if (pending.isNotEmpty()) pending.deleteCharAt(pending.length - 1)
+    autoShiftIfSentenceStart() // deleting back to a sentence start re-arms caps
     updateFormatVisible()
   }
 
@@ -704,7 +740,7 @@ class VibeFlowKeyboardService : InputMethodService() {
 
   private fun paintMic() {
     micButton?.background = rounded(if (micMode) LIVE else BRAND, 16)
-    micButton?.text = if (micMode) "⏹" else "🎤"
+    micButton?.setImageResource(if (micMode) R.drawable.ic_stop else R.drawable.ic_mic)
   }
 
   // ── ✨ Format (server polish) ─────────────────────────────────────────────────
