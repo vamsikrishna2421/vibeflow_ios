@@ -1,20 +1,16 @@
 # Build + upload VibeFlow to TestFlight from a clean CI runner, no registered
-# devices and no interactive Apple login. fastlane creates the distribution
-# certificate and an App Store provisioning profile for EACH target via the App
-# Store Connect API key (App Store profiles don't need devices — which is why the
-# earlier plain-xcodebuild automatic-signing archive failed on this fresh account),
-# switches every target to manual signing, then gym-archives and uploads.
+# devices and no interactive Apple login.
+#
+# Approach: ensure a DISTRIBUTION certificate exists (fastlane `cert`), then let
+# xcodebuild do AUTOMATIC signing with `-allowProvisioningUpdates` + the App Store
+# Connect API key. Xcode then self-configures each target's App ID capabilities and
+# mints matching App Store provisioning profiles for all three targets (app /
+# keyboard / widget) — no devices needed. (Attempt 1 failed only because there was
+# NO distribution cert, so automatic signing fell back to a Development profile,
+# which requires a registered device on this fresh account.)
 default_platform(:ios)
 
-BUNDLES = [
-  "com.vibeflow.dictation",
-  "com.vibeflow.dictation.keyboard",
-  "com.vibeflow.dictation.widget",
-].freeze
-
 TEAM_ID = "33348G2388".freeze
-PROJECT = "VibeFlow.xcodeproj".freeze
-WORKSPACE = "VibeFlow.xcworkspace".freeze
 
 platform :ios do
   desc "Build and upload to TestFlight"
@@ -39,55 +35,28 @@ platform :ios do
       lock_when_sleeps: false,
     )
 
-    # Distribution certificate: reuse an existing one if present, else create it.
+    # Reuse an existing distribution certificate or create one, installed into the
+    # CI keychain so automatic distribution signing has an identity to use.
     cert(
       api_key: api_key,
       keychain_path: File.expand_path("~/Library/Keychains/#{keychain_name}-db"),
       keychain_password: keychain_password,
     )
 
-    # One App Store profile per target (no devices required).
-    profiles = {}
-    BUNDLES.each do |bundle|
-      sigh(
-        api_key: api_key,
-        app_identifier: bundle,
-        platform: "ios",
-        # defaults to an App Store distribution profile
-      )
-      profiles[bundle] = ENV["sigh_#{bundle}_appstore_profile-name"] ||
-                         ENV["sigh_#{bundle}_appstore"]
-    end
-
-    # Switch each target to manual signing pinned to its App Store profile.
-    target_for = {
-      "VibeFlow" => "com.vibeflow.dictation",
-      "VibeFlowKeyboard" => "com.vibeflow.dictation.keyboard",
-      "VibeFlowWidgets" => "com.vibeflow.dictation.widget",
-    }
-    target_for.each do |target, bundle|
-      update_code_signing_settings(
-        path: PROJECT,
-        use_automatic_signing: false,
-        team_id: TEAM_ID,
-        targets: [target],
-        bundle_identifier: bundle,
-        code_sign_identity: "Apple Distribution",
-        profile_name: profiles[bundle],
-      )
-    end
-
     build_app(
-      workspace: WORKSPACE,
+      workspace: "VibeFlow.xcworkspace",
       scheme: "VibeFlow",
       configuration: "Release",
       export_method: "app-store",
       output_directory: "build",
       clean: true,
+      # Automatic signing; the API key (in lane context) lets xcodebuild create the
+      # App Store profiles + configure capabilities without any registered device.
+      xcargs: "-allowProvisioningUpdates DEVELOPMENT_TEAM=#{TEAM_ID}",
       export_options: {
-        signingStyle: "manual",
+        method: "app-store",
         teamID: TEAM_ID,
-        provisioningProfiles: profiles,
+        signingStyle: "automatic",
       },
     )
 
