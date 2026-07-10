@@ -12,7 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
 import * as Updates from 'expo-updates';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, AppState, Easing, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Animated, AppState, Easing, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
@@ -143,15 +143,17 @@ export function TalkScreen() {
       }
       if (settings.smartFormat && signedInRef.current) {
         flashToast('✨ Polishing…');
-        polish(next.trim(), 'auto').then((r) => {
-          if (r.ok && r.text) {
-            setDraft(r.text);
-            flashToast(r.isPro ? '✨ Polished' : `✨ Polished — ${r.remaining ?? '?'} free left this week`);
-            if (settings.autoCopy) Clipboard.setStringAsync(r.text).catch(() => {});
-          } else if (r.error === 'limit_reached') {
-            flashToast('Free polishes used up this week — Pro is unlimited');
-          }
-        });
+        polish(next.trim(), 'auto')
+          .then((r) => {
+            if (r.ok && r.text) {
+              setDraft(r.text);
+              flashToast(r.isPro ? '✨ Polished' : `✨ Polished — ${r.remaining ?? '?'} free left this week`);
+              if (settings.autoCopy) Clipboard.setStringAsync(r.text).catch(() => {});
+            } else if (r.error === 'limit_reached') {
+              flashToast('Free polishes used up this week — Pro is unlimited');
+            }
+          })
+          .catch(() => flashToast('Couldn’t polish just now — your raw dictation is ready'));
         return;
       }
       if (settings.autoCopy) {
@@ -197,11 +199,20 @@ export function TalkScreen() {
   const addDictationRef = useRef(addDictation);
   addDictationRef.current = addDictation;
   useEffect(() => {
-    const finalSub = addUtteranceFinalListener(({ text }) => {
+    const finalSub = addUtteranceFinalListener(({ text, id }) => {
       (async () => {
         // Engine v2 defers delivery to us — older engines already inserted raw
         // text themselves, so we must not re-ping on them.
         const engineDefers = getItem('flow_engine_v') === '2';
+        // v3 engines send a claim id — echo it IMMEDIATELY so the native 8s
+        // raw-text fallback knows JS is alive and owns delivery (prevents it
+        // double-inserting raw text when the AI polish runs long).
+        const utteranceId = typeof id === 'string' && id ? id : null;
+        if (utteranceId) setItem('flow_claim_id', utteranceId);
+        // Set once the keyboard has been pinged, so the catch below can never
+        // double-deliver after a late throw (e.g. history booking failing).
+        let delivered = false;
+        try {
 
         // 1. LOCAL pipeline, always (the Android TextCuration port): spoken
         //    punctuation, fillers, repeats, caps, corrections, vocabulary —
@@ -231,18 +242,60 @@ export function TalkScreen() {
           updateLiveActivity('Inserted ✓', finalText);
         }
 
-        // 3. Deliver to the keyboard (engine v2 only; guard against the native
-        //    8s raw fallback having already delivered).
+        // 3. Deliver to the keyboard.
         if (engineDefers) {
-          if (getItem('kbd_flow_status') === 'processing') {
+          if (utteranceId) {
+            if (Number(getItem('flow_fallback_done') || 0) >= Number(utteranceId)) {
+              // We were so slow the native 8s fallback already inserted the raw
+              // text (for this utterance or a later one — ids are ms-epoch and
+              // events arrive in order) — don't insert a polished duplicate.
+            } else {
+              // v3: ALWAYS deliver — losing a dictation is never acceptable (the
+              // old status gate dropped utterance A whenever the user had already
+              // started utterance B). Only flip the shared status when this
+              // utterance still owns it, so a newer recording's "listening" isn't
+              // stomped.
+              setItem('latest_dictation', finalText);
+              setItem('latest_dictation_ts', String(Date.now()));
+              if (getItem('kbd_flow_status') === 'processing') {
+                setItem('kbd_flow_status', 'inserted');
+                notifyFlowStatus();
+              }
+              notifyResultReady();
+              delivered = true;
+            }
+          } else if (getItem('kbd_flow_status') === 'processing') {
+            // Legacy engines (no claim id): keep the old guarded delivery — their
+            // native 8s fallback isn't gen-fenced, so unconditional delivery here
+            // could double-insert.
             setItem('latest_dictation', finalText);
             setItem('latest_dictation_ts', String(Date.now()));
             setItem('kbd_flow_status', 'inserted');
             notifyResultReady();
             notifyFlowStatus();
+            delivered = true;
           }
         }
         addDictationRef.current(finalText);
+        } catch {
+          // A throw anywhere above must NEVER eat a dictation (we've already
+          // claimed it, which silences the native raw fallback): deliver the raw
+          // text (unless the keyboard was already pinged) and book it to history.
+          try {
+            if (!delivered) {
+              setItem('latest_dictation', text);
+              setItem('latest_dictation_ts', String(Date.now()));
+              if (getItem('kbd_flow_status') === 'processing') {
+                setItem('kbd_flow_status', 'inserted');
+                notifyFlowStatus();
+              }
+              notifyResultReady();
+            }
+            addDictationRef.current(text);
+          } catch {
+            // storage itself failed — nothing more we can do
+          }
+        }
       })();
     });
     const statusSub = addFlowStatusListener(({ status }) => {
@@ -364,6 +417,7 @@ export function TalkScreen() {
     { style: 'email', label: 'Email', icon: 'mail-outline' },
     { style: 'message', label: 'Casual', icon: 'chatbubble-ellipses-outline' },
     { style: 'notes', label: 'Notes', icon: 'list-outline' },
+    { style: 'plan', label: 'Plan', icon: 'checkmark-done-outline' },
   ];
   const [editInstruction, setEditInstruction] = useState('');
   const runPolishStyle = async (style: PolishStyle, instruction?: string) => {
@@ -375,15 +429,23 @@ export function TalkScreen() {
     }
     setReformatting(style);
     if (settings.haptics) haptic.tap();
-    const r = await polish(text, style, instruction);
-    setReformatting(null);
-    if (r.ok && r.text) {
+    // try/finally so a thrown polish() can never leave the chip spinning + the
+    // whole reformat UI locked (reformatting stays truthy → every control disabled).
+    let r: Awaited<ReturnType<typeof polish>> | null = null;
+    try {
+      r = await polish(text, style, instruction);
+    } catch {
+      r = null;
+    } finally {
+      setReformatting(null);
+    }
+    if (r && r.ok && r.text) {
       setDraft(r.text);
       if (settings.autoCopy) Clipboard.setStringAsync(r.text).catch(() => {});
       flashToast(r.isPro ? '✨ Done' : `✨ Done — ${r.remaining ?? '?'} free left`);
       return true;
     }
-    if (r.error === 'limit_reached') flashToast('Free polishes used up this week — Pro is unlimited');
+    if (r && r.error === 'limit_reached') flashToast('Free polishes used up this week — Pro is unlimited');
     else flashToast('Could not apply — try again');
     return false;
   };
@@ -403,7 +465,11 @@ export function TalkScreen() {
   const onSave = () => {
     addDictation(draft.trim());
     if (settings.haptics) haptic.success();
-    flashToast('Saved — tap "Insert latest" in the VibeFlow keyboard');
+    flashToast(
+      Platform.OS === 'ios'
+        ? 'Saved — tap "Insert latest" in the VibeFlow keyboard'
+        : 'Saved to your history',
+    );
     setDraft('');
   };
   const onClear = () => {
@@ -422,6 +488,13 @@ export function TalkScreen() {
         <Badge label={settings.onDeviceOnly ? 'ON-DEVICE' : 'CLOUD'} tone={settings.onDeviceOnly ? 'brand' : 'amber'} />
       </View>
 
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        showsVerticalScrollIndicator={false}
+      >
       {totalWords > 0 ? (
         <Text style={styles.wordStat}>
           🎙 {totalWords.toLocaleString()} words spoken with VibeFlow
@@ -514,7 +587,7 @@ export function TalkScreen() {
           </Pressable>
         </View>
       ) : (
-      <View style={styles.center}>
+      <View style={[styles.center, showDraft && styles.centerCompact]}>
         <Text style={styles.prompt}>
           {listening ? 'Listening…' : showDraft ? 'Tap to add more' : 'Tap to talk'}
         </Text>
@@ -603,17 +676,27 @@ export function TalkScreen() {
               style={styles.saveGrad}
             >
               <Ionicons name="sparkles" size={18} color="#fff" />
-              <Text style={styles.saveText}>Save for keyboard</Text>
+              <Text style={styles.saveText}>{Platform.OS === 'ios' ? 'Save for keyboard' : 'Save to history'}</Text>
             </LinearGradient>
           </Pressable>
         </View>
       ) : (
         <View style={styles.steps}>
           <Step n="1" t="Dictate here — your words are formatted instantly." />
-          <Step n="2" t="Switch to the VibeFlow keyboard (🌐 globe key) in any app." />
-          <Step n="3" t="Tap “Insert latest” to drop them at the cursor." />
+          {Platform.OS === 'ios' ? (
+            <>
+              <Step n="2" t="Switch to the VibeFlow keyboard (🌐 globe key) in any app." />
+              <Step n="3" t="Tap “Insert latest” to drop them at the cursor." />
+            </>
+          ) : (
+            <>
+              <Step n="2" t="Tap Copy — your polished text goes to the clipboard." />
+              <Step n="3" t="Paste it into any app — Gmail, WhatsApp, Notes…" />
+            </>
+          )}
         </View>
       )}
+      </ScrollView>
 
       {toast ? (
         <View style={[styles.toast, { bottom: insets.bottom + 16 }]}>
@@ -929,7 +1012,12 @@ const styles = StyleSheet.create({
   wordmarkRow: { flexDirection: 'row' },
   wordmark: { color: Colors.ink, fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
 
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  scroll: { flex: 1 },
+  scrollContent: { flexGrow: 1, paddingBottom: 24 },
+  center: { flexGrow: 1, minHeight: 300, alignItems: 'center', justifyContent: 'center' },
+  // When a draft is showing, the mic collapses to its content height so the draft
+  // (and its Save button) sits right below it and stays reachable.
+  centerCompact: { flexGrow: 0, minHeight: 0, paddingTop: 4, paddingBottom: 8 },
   prompt: { color: Colors.ink, fontSize: 22, fontWeight: '700', marginBottom: 26 },
 
   sessionBar: {

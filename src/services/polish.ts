@@ -7,7 +7,7 @@
 import { deviceId, signOut } from './auth';
 import { FUNCTIONS_URL, SUPABASE_ANON_KEY, supabase } from './supabase';
 
-export type PolishStyle = 'cleanup' | 'message' | 'structured' | 'email' | 'notes' | 'auto' | 'instruct';
+export type PolishStyle = 'cleanup' | 'message' | 'structured' | 'email' | 'notes' | 'plan' | 'auto' | 'instruct';
 
 export interface PolishResult {
   ok: boolean;

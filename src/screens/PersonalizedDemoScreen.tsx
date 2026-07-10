@@ -14,6 +14,7 @@
  *                    otherwise. → "Unlock Pro".
  */
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -28,12 +29,13 @@ import { useStore } from '@/store';
 import { Colors, Radius, brandGradient, heroMicGradient } from '@/theme/colors';
 import { Card, GhostButton, PrimaryButton, Screen, TextField, Type, haptic } from '@/ui/kit';
 
-// The three showcase styles (a subset of PolishStyle) + their tab presentation.
-type Style = 'email' | 'message' | 'notes';
+// The showcase styles (a subset of PolishStyle) + their tab presentation.
+type Style = 'email' | 'message' | 'notes' | 'plan';
 const STYLES: { key: Style; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'email', label: 'Email', icon: 'mail-outline' },
   { key: 'message', label: 'Casual', icon: 'chatbubble-ellipses-outline' },
   { key: 'notes', label: 'Notes', icon: 'list-outline' },
+  { key: 'plan', label: 'Plan', icon: 'checkmark-done-outline' },
 ];
 
 // ── personalised copy ────────────────────────────────────────────────────────
@@ -76,15 +78,23 @@ function cannedFor(style: Style, name: string): string {
       `Roadmap's looking good, just gotta fix the numbers 👍`
     );
   }
+  if (style === 'notes') {
+    // Plain, scannable bullet points — quick jottings, no categories.
+    return (
+      `• Finalize the Q3 budget by Thursday — we're ~15% over.\n` +
+      `• Loop in the design team on the new timeline.\n` +
+      `• Confirm whether marketing locked the launch date.\n` +
+      `• Vendor contract renews next month — needs a review.\n` +
+      `• Roadmap looks good overall; the numbers need another look.`
+    );
+  }
+  // plan — action-focused: to-dos / follow-ups / open questions
   return (
-    `📌 FACTS\n` +
-    `• Q3 budget is ~15% over.\n` +
-    `• Vendor contract renews next month.\n\n` +
     `✅ TO-DOS\n` +
-    `• Finalize the Q3 budget by Thursday.\n` +
+    `• Finalize the Q3 budget by Thursday (~15% over).\n` +
     `• Loop in the design team on the new timeline.\n\n` +
     `🔁 FOLLOW-UPS\n` +
-    `• Review the vendor contract before it renews.\n\n` +
+    `• Review the vendor contract before it renews next month.\n\n` +
     `❓ OPEN QUESTIONS\n` +
     `• Did marketing confirm the launch date?`
   );
@@ -110,6 +120,10 @@ export function PersonalizedDemoScreen() {
   const [activeStyle, setActiveStyle] = useState<Style>('email');
   const [outputs, setOutputs] = useState<Partial<Record<Style, Output>>>({});
   const [authBusy, setAuthBusy] = useState(false);
+  // Which style tabs the user has opened — drives the "tap me" hint + pulse so
+  // nobody misses that Casual/Notes are tappable. 'email' is the default tab.
+  const [viewedStyles, setViewedStyles] = useState<Set<Style>>(() => new Set<Style>(['email']));
+  const [copied, setCopied] = useState(false);
 
   const sample = useMemo(() => buildSample(name.trim(), role.trim()), [name, role]);
 
@@ -141,13 +155,39 @@ export function PersonalizedDemoScreen() {
   });
   const listening = dictation.state === 'listening';
 
+  // Pulse the not-yet-opened style tabs so nobody misses that Casual/Notes are tappable.
+  const tabPulse = useRef(new Animated.Value(0)).current;
+  const allStylesViewed = viewedStyles.size >= STYLES.length;
+  useEffect(() => {
+    if (allStylesViewed) {
+      tabPulse.stopAnimation();
+      tabPulse.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(tabPulse, { toValue: 1, duration: 650, useNativeDriver: true }),
+        Animated.timing(tabPulse, { toValue: 0, duration: 650, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [allStylesViewed, tabPulse]);
+
   async function polishStyle(style: Style, text: string) {
     setOutputs((o) => ({ ...o, [style]: { text: '', kind: 'canned', loading: true } }));
-    const r = await polish(text, style as PolishStyle);
+    // A THROWN polish() (network blip / parse error) must never leave the tab stuck
+    // on "Polishing…" — fall back to the crafted preview so switching always resolves.
+    let r: Awaited<ReturnType<typeof polish>> | null = null;
+    try {
+      r = await polish(text, style as PolishStyle);
+    } catch {
+      r = null;
+    }
     setOutputs((o) => ({
       ...o,
       [style]:
-        r.ok && r.text
+        r && r.ok && r.text
           ? { text: r.text, kind: 'real', loading: false }
           : { text: cannedFor(style, name.trim()), kind: 'canned', loading: false },
     }));
@@ -156,7 +196,32 @@ export function PersonalizedDemoScreen() {
   function selectStyle(s: Style) {
     haptic.tap();
     setActiveStyle(s);
+    setViewedStyles((v) => new Set(v).add(s));
+    setCopied(false);
     if (!outputs[s] && raw) polishStyle(s, raw);
+  }
+
+  // Copy the currently-shown polished text so it can be pasted straight into Gmail etc.
+  async function copyResult() {
+    const t = outputs[activeStyle]?.text;
+    if (!t) return;
+    try {
+      await Clipboard.setStringAsync(t);
+      haptic.success();
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      haptic.warning();
+    }
+  }
+
+  // Step back through the one-time demo flow (signin → profile → permissions → read → result).
+  function back() {
+    haptic.tap();
+    if (step === 'result') setStep('read');
+    else if (step === 'read') setStep('permissions');
+    else if (step === 'permissions') setStep('profile');
+    else if (step === 'profile') setStep('signin');
   }
 
   // Persist profile + seed vocabulary the moment they commit to the demo.
@@ -280,7 +345,7 @@ export function PersonalizedDemoScreen() {
   // ── step 1.5: permissions (explicit, up-front) ─────────────────────────────
   if (step === 'permissions') {
     return (
-      <Screen>
+      <Screen onBack={back}>
         <View style={styles.hero}>
           <LinearGradient colors={[...brandGradient]} style={styles.heroIcon}>
             <Ionicons name="mic" size={26} color="#fff" />
@@ -307,8 +372,8 @@ export function PersonalizedDemoScreen() {
   // ── step 2: read aloud ─────────────────────────────────────────────────────
   if (step === 'read') {
     return (
-      <Screen>
-        <View style={styles.hero}>
+      <Screen onBack={back}>
+        <View style={[styles.hero, { marginBottom: 10 }]}>
           <Text style={Type.title}>Read this out loud</Text>
           <Text style={[Type.subtitle, { marginTop: 6 }]}>
             Tap the mic and read it naturally — just like you'd dictate a real message.
@@ -344,7 +409,7 @@ export function PersonalizedDemoScreen() {
   // ── step 3: before → three transformations ─────────────────────────────────
   const out = outputs[activeStyle];
   return (
-    <Screen>
+    <Screen onBack={back}>
       <View style={styles.hero}>
         <Text style={Type.title}>One voice note, three ways</Text>
         <Text style={[Type.subtitle, { marginTop: 6 }]}>
@@ -365,6 +430,7 @@ export function PersonalizedDemoScreen() {
       <View style={styles.tabs}>
         {STYLES.map((s) => {
           const active = s.key === activeStyle;
+          const unseen = !viewedStyles.has(s.key);
           return (
             <Pressable
               key={s.key}
@@ -373,10 +439,28 @@ export function PersonalizedDemoScreen() {
             >
               <Ionicons name={s.icon} size={15} color={active ? '#fff' : Colors.inkSoft} />
               <Text style={[styles.tabText, active && styles.tabTextActive]}>{s.label}</Text>
+              {unseen ? (
+                <Animated.View
+                  pointerEvents="none"
+                  style={[
+                    styles.tabDot,
+                    {
+                      opacity: tabPulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] }),
+                      transform: [{ scale: tabPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.4] }) }],
+                    },
+                  ]}
+                />
+              ) : null}
             </Pressable>
           );
         })}
       </View>
+      {!allStylesViewed ? (
+        <View style={styles.tabHintRow}>
+          <Ionicons name="arrow-up" size={13} color={Colors.amber} />
+          <Text style={styles.tabHint}>Tap the other styles — same words, reshaped for each</Text>
+        </View>
+      ) : null}
 
       {/* AFTER — polished for the selected style */}
       <View style={styles.resultLabelRow}>
@@ -397,6 +481,15 @@ export function PersonalizedDemoScreen() {
           )}
         </View>
       </LinearGradient>
+
+      {out && !out.loading ? (
+        <Pressable onPress={copyResult} style={({ pressed }) => [styles.copyBtn, pressed && { opacity: 0.85 }]}>
+          <Ionicons name={copied ? 'checkmark-circle' : 'copy-outline'} size={17} color={copied ? Colors.amber : Colors.ink} />
+          <Text style={styles.copyBtnText}>
+            {copied ? 'Copied — paste it anywhere' : `Copy ${STYLES.find((s) => s.key === activeStyle)?.label ?? 'text'}`}
+          </Text>
+        </Pressable>
+      ) : null}
 
       {out?.kind === 'canned' && !signedIn ? (
         <Pressable onPress={signInAndPolish} style={styles.signInNudge}>
@@ -471,14 +564,14 @@ const styles = StyleSheet.create({
   hero: { marginBottom: 22 },
   heroIcon: { width: 56, height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   sample: { color: Colors.ink, fontSize: 17, lineHeight: 27, fontWeight: '500' },
-  hint: { color: Colors.inkFaint, fontSize: 13, textAlign: 'center', marginTop: 18 },
+  hint: { color: Colors.inkFaint, fontSize: 13, textAlign: 'center', marginTop: 10 },
   live: { color: Colors.inkSoft, fontSize: 15, lineHeight: 22, textAlign: 'center', marginTop: 18, minHeight: 44 },
 
-  micWrap: { alignItems: 'center', marginTop: 20, marginBottom: 24, gap: 10 },
+  micWrap: { alignItems: 'center', marginTop: 12, marginBottom: 14, gap: 8 },
   micLabel: { color: Colors.inkSoft, fontSize: 13, fontWeight: '600' },
-  orbArea: { alignItems: 'center', justifyContent: 'center', width: 140, height: 140 },
-  orbRing: { position: 'absolute', width: 104, height: 104, borderRadius: 52, backgroundColor: '#7C5CFF' },
-  orb: { width: 104, height: 104, borderRadius: 52, alignItems: 'center', justifyContent: 'center' },
+  orbArea: { alignItems: 'center', justifyContent: 'center', width: 116, height: 116 },
+  orbRing: { position: 'absolute', width: 92, height: 92, borderRadius: 46, backgroundColor: '#7C5CFF' },
+  orb: { width: 92, height: 92, borderRadius: 46, alignItems: 'center', justifyContent: 'center' },
 
   permRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   permIcon: { width: 38, height: 38, borderRadius: 11, backgroundColor: Colors.chipBg, alignItems: 'center', justifyContent: 'center' },
@@ -494,6 +587,9 @@ const styles = StyleSheet.create({
   tabActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
   tabText: { color: Colors.inkSoft, fontSize: 13, fontWeight: '600' },
   tabTextActive: { color: '#fff' },
+  tabDot: { position: 'absolute', top: 5, right: 7, width: 7, height: 7, borderRadius: 4, backgroundColor: Colors.amber },
+  tabHintRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, marginTop: -6, marginBottom: 14 },
+  tabHint: { color: Colors.amber, fontSize: 12.5, fontWeight: '600' },
 
   resultLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   resultLabel: { color: Colors.inkSoft, fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
@@ -502,6 +598,13 @@ const styles = StyleSheet.create({
   proInner: { backgroundColor: Colors.surface, borderRadius: Radius.card, padding: 16, minHeight: 80 },
   afterText: { color: Colors.ink, fontSize: 15, lineHeight: 24, fontWeight: '500' },
   polishing: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
+
+  copyBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    height: 44, marginTop: 12, borderRadius: 12, backgroundColor: Colors.chipBg,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.outline,
+  },
+  copyBtnText: { color: Colors.ink, fontSize: 14, fontWeight: '700' },
 
   signInNudge: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 14 },
   signInNudgeText: { color: Colors.ink, fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' },

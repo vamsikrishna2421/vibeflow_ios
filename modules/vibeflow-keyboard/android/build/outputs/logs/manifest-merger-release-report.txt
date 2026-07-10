@@ -1,0 +1,40 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml:1:1-20:12
+INJECTED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml:1:1-20:12
+	package
+		INJECTED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml
+	xmlns:android
+		ADDED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml:1:11-69
+application
+ADDED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml:2:3-19:17
+service#com.vibeflow.keyboard.VibeFlowKeyboardService
+ADDED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml:7:5-18:15
+	android:label
+		ADDED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml:9:7-31
+	android:exported
+		ADDED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml:11:7-30
+	android:permission
+		ADDED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml:10:7-64
+	android:name
+		ADDED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml:8:7-67
+intent-filter#action:name:android.view.InputMethod
+ADDED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml:12:7-14:23
+action#android.view.InputMethod
+ADDED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml:13:9-59
+	android:name
+		ADDED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml:13:17-56
+meta-data#android.view.im
+ADDED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml:15:7-17:42
+	android:resource
+		ADDED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml:17:9-39
+	android:name
+		ADDED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml:16:9-39
+uses-sdk
+INJECTED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml
+INJECTED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from /Users/vamsikrishnareddylekkala/Documents/My_AI_Projects/vibeflow_ios/modules/vibeflow-keyboard/android/src/main/AndroidManifest.xml

@@ -9,7 +9,7 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Purchases, { PurchasesPackage } from 'react-native-purchases';
 
 import { useNav } from '@/navigation/nav';
@@ -279,7 +279,7 @@ export function PaywallScreen() {
 
           <Text style={styles.legal}>
             Subscriptions renew automatically unless cancelled at least 24 hours before the end of the
-            current period. Manage or cancel anytime in your App Store settings.
+            current period. Manage or cancel anytime in your {Platform.OS === 'ios' ? 'App Store' : 'Google Play'} settings.
           </Text>
         </>
       )}

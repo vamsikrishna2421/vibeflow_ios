@@ -73,10 +73,11 @@ export function addRecordToggleListener(listener: () => void): { remove(): void 
   }
 }
 
-/** Fired with the final text of each native flow utterance (already inserted by
- * the keyboard) — for history/Live-Activity bookkeeping. */
+/** Fired with the final text of each native flow utterance. `id` (v3 engines) is
+ * the utterance's claim token: echo it to the App Group key `flow_claim_id` so the
+ * native 8s raw-delivery fallback knows JS is alive and owns delivery. */
 export function addUtteranceFinalListener(
-  listener: (e: { text: string }) => void,
+  listener: (e: { text: string; id?: string }) => void,
 ): { remove(): void } | null {
   try {
     return native?.addListener('utteranceFinal', listener) ?? null;

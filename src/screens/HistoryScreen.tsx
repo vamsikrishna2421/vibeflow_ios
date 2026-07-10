@@ -7,7 +7,7 @@
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { polish, PolishStyle } from '@/services/polish';
@@ -333,7 +333,11 @@ export function HistoryScreen() {
           <EmptyState
             icon="mic-outline"
             title="No dictations yet"
-            message="Dictate on the Talk tab — your formatted text is saved here and made available to the keyboard."
+            message={
+              Platform.OS === 'ios'
+                ? 'Dictate on the Talk tab — your formatted text is saved here and made available to the keyboard.'
+                : 'Dictate on the Talk tab — your formatted text is saved here, ready to copy anytime.'
+            }
           />
         ) : filtered.length === 0 ? (
           <EmptyState

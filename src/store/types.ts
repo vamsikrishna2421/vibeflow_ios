@@ -95,7 +95,9 @@ export function defaultSettings(): AppSettings {
     onDeviceOnly: true,
     voiceCommands: true,
     smartFormat: false,
-    autoCopy: true,
+    autoCopy: false, // OFF by default: auto-copy triggers Android 13+'s intrusive
+    //                  "Send to device" clipboard chip on every result. Users who
+    //                  want it can re-enable in Settings → Auto-copy after dictation.
     haptics: true,
   };
 }

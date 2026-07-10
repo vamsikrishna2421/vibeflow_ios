@@ -1,0 +1,28 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+group = 'com.vibeflow.keyboard'
+version = '0.1.0'
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useDefaultAndroidSdkVersions()
+useExpoPublishing()
+
+android {
+  namespace "com.vibeflow.keyboard"
+  defaultConfig {
+    minSdkVersion safeExtGet("minSdkVersion", 24)
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  // SpeechRecognizer (android.speech), HttpURLConnection + org.json are all part of
+  // the Android platform — no extra deps. Coroutines come transitively from
+  // expo-modules-core (useCoreDependencies).
+}

@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useState } from 'react';
 import * as Updates from 'expo-updates';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CurationOptions } from '@/core';
 import { useAuth } from '@/hooks/useAuth';
@@ -19,6 +19,11 @@ import { fetchQuota, quotaLabel, Quota } from '@/services/quota';
 import { useNav } from '@/navigation/nav';
 import { LANGUAGES, languageLabel, useStore } from '@/store';
 import { getItem, removeItem, setItem } from '@/store/appGroup';
+import { prefGet, prefRemove, prefSet } from '@/store/prefs';
+// True only in a build that actually bundles the Android IME native module. Lets
+// interim OTAs ship safely: the keyboard section stays hidden on Android builds
+// that don't have the keyboard yet, and lights up automatically once one does.
+import { isAvailable as androidKeyboardAvailable } from '@/services/keyboard';
 import { Colors, Radius, Spacing } from '@/theme/colors';
 import {
   Badge,
@@ -71,39 +76,37 @@ export function SettingsScreen() {
   // Appearance: explicit choice persisted in the App Group; styles resolve at JS
   // launch, so applying re-themes via an instant reload.
   const [themePref, setThemePref] = useState<'system' | 'dark' | 'light'>(() => {
-    try {
-      const v = getItem('app_theme');
-      return v === 'dark' || v === 'light' ? v : 'system';
-    } catch {
-      return 'system';
-    }
+    // prefs store first (persists on Android); App Group is the iOS-keyboard mirror.
+    const v = prefGet('app_theme') ?? getItem('app_theme');
+    return v === 'dark' || v === 'light' ? v : 'system';
   });
   const applyTheme = (v: 'system' | 'dark' | 'light') => {
     if (v === themePref) return;
     haptic.tap();
     setThemePref(v);
-    try {
-      if (v === 'system') removeItem('app_theme');
-      else setItem('app_theme', v);
-    } catch {}
+    // Persist to the cross-platform prefs store AND mirror to the App Group so the
+    // iOS keyboard extension re-themes too. The reload re-resolves colors.ts.
+    if (v === 'system') {
+      prefRemove('app_theme');
+      try { removeItem('app_theme'); } catch {}
+    } else {
+      prefSet('app_theme', v);
+      try { setItem('app_theme', v); } catch {}
+    }
     setTimeout(() => Updates.reloadAsync().catch(() => {}), 150);
   };
 
   // Palette: colourful (original) vs monochrome — same instant-reload mechanism.
   const [palettePref, setPalettePref] = useState<'color' | 'mono'>(() => {
-    try {
-      return getItem('app_palette') === 'mono' ? 'mono' : 'color';
-    } catch {
-      return 'color';
-    }
+    const v = prefGet('app_palette') ?? getItem('app_palette');
+    return v === 'mono' ? 'mono' : 'color';
   });
   const applyPalette = (v: 'color' | 'mono') => {
     if (v === palettePref) return;
     haptic.tap();
     setPalettePref(v);
-    try {
-      setItem('app_palette', v);
-    } catch {}
+    prefSet('app_palette', v);
+    try { setItem('app_palette', v); } catch {}
     setTimeout(() => Updates.reloadAsync().catch(() => {}), 150);
   };
 
@@ -145,7 +148,7 @@ export function SettingsScreen() {
                 </View>
                 <View style={styles.bannerText}>
                   <Text style={styles.goldTitle}>Unlock VibeFlow Pro</Text>
-                  <Text style={styles.goldSub}>Smart AI formatting, unlimited snippets &amp; more.</Text>
+                  <Text style={styles.goldSub}>Smart AI formatting, unlimited snippets & more.</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color="#E8C96A" />
               </View>
@@ -155,7 +158,7 @@ export function SettingsScreen() {
       ) : null}
 
       {/* Account & AI ----------------------------------------------------------- */}
-      <SectionTitle>Account &amp; AI</SectionTitle>
+      <SectionTitle>Account & AI</SectionTitle>
       <Card style={{ gap: 12 }}>
         {signedIn ? (
           <>
@@ -336,7 +339,7 @@ export function SettingsScreen() {
       </Card>
 
       {/* Output & input ------------------------------------------------------- */}
-      <SectionTitle>Output &amp; input</SectionTitle>
+      <SectionTitle>Output & input</SectionTitle>
       <Card padded={false} style={styles.group}>
         <ToggleRow
           icon="clipboard-outline"
@@ -381,7 +384,7 @@ export function SettingsScreen() {
         <ToggleRow
           icon="color-wand-outline"
           label="Smart formatting"
-          subtitle={signedIn ? "AI cleans grammar &amp; tone — 50 free/week" : "Sign in above to enable"}
+          subtitle={signedIn ? "AI cleans grammar & tone — 50 free/week" : "Sign in above to enable"}
           value={signedIn ? settings.smartFormat : false}
           onValueChange={onToggleSmart}
         />
@@ -415,17 +418,28 @@ export function SettingsScreen() {
         />
       </Card>
 
-      {/* Keyboard ------------------------------------------------------------- */}
-      <SectionTitle>Keyboard</SectionTitle>
-      <Card padded={false} style={styles.group}>
-        <NavRow
-          icon="keypad-outline"
-          tint="#39D98A"
-          label="Set up the keyboard"
-          subtitle="Guided: add VibeFlow + Allow Full Access"
-          onPress={() => push('keyboardSetup')}
-        />
-      </Card>
+      {/* Keyboard: iOS = app-extension (Full Access flow, always in the iOS build);
+          Android = the VibeFlow InputMethodService — only show once a build actually
+          bundles it (androidKeyboardAvailable), so interim OTAs don't surface a dead
+          setup on Android Play builds that lack the native keyboard. */}
+      {Platform.OS === 'ios' || androidKeyboardAvailable ? (
+        <>
+          <SectionTitle>Keyboard</SectionTitle>
+          <Card padded={false} style={styles.group}>
+            <NavRow
+              icon="keypad-outline"
+              tint="#39D98A"
+              label="Set up the keyboard"
+              subtitle={
+                Platform.OS === 'ios'
+                  ? 'Guided: add VibeFlow + Allow Full Access'
+                  : 'Type by voice in any app'
+              }
+              onPress={() => push('keyboardSetup')}
+            />
+          </Card>
+        </>
+      ) : null}
 
       {/* About ---------------------------------------------------------------- */}
       <SectionTitle>About</SectionTitle>

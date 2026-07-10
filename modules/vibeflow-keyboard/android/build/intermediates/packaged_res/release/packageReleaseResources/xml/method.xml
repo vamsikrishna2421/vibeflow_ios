@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Input-method metadata for the VibeFlow keyboard. One English (US) subtype;
+     it's a voice-first keyboard, so no per-language layouts to enumerate. -->
+<input-method xmlns:android="http://schemas.android.com/apk/res/android">
+  <subtype
+    android:label="VibeFlow"
+    android:imeSubtypeLocale="en_US"
+    android:imeSubtypeMode="keyboard" />
+</input-method>

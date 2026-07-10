@@ -265,6 +265,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!state.hydrated) return;
     syncToAppGroup(state.history, state.snippets);
     setItem('kbd_language', state.settings.language);
+    // Privacy setting for the native Flow-Session recognizer (keyboard dictation):
+    // it honors on-device recognition when this is not "false".
+    setItem('flow_on_device', String(state.settings.onDeviceOnly));
     // Personal dictionary for the keyboard: starter romanized Telugu/Hindi + the
     // user's Vocabulary terms, so it won't autocorrect them and can suggest them.
     const learned = Array.from(
@@ -275,6 +278,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     state.history,
     state.snippets,
     state.settings.language,
+    state.settings.onDeviceOnly,
     state.vocabulary,
     state.hydrated,
   ]);

@@ -12,6 +12,10 @@ import { AnimatedSplash } from '@/ui/AnimatedSplash';
 import { UpdateBanner } from '@/ui/UpdateBanner';
 import { checkProEntitlement, configureRevenueCat, onProChange } from '@/services/revenuecat';
 import { useStore } from '@/store';
+import { useAuth } from '@/hooks/useAuth';
+import { deviceId } from '@/services/auth';
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/services/supabase';
+import * as VibeKeyboard from '@/services/keyboard';
 
 import { flowSessionActive } from './modules/vibeflow-flowsession';
 import { Colors, isLight } from '@/theme/colors';
@@ -34,6 +38,7 @@ export default function App() {
               <StaleSessionGuard />
             <RevenueCatInit />
             <EntitlementSync />
+            <KeyboardBridge />
               <RootNavigator />
               <UpdateBanner />
             </AnimatedSplash>
@@ -66,6 +71,36 @@ function EntitlementSync() {
     const off = onProChange((pro) => setPremium(pro));
     return () => { alive = false; off(); };
   }, [setPremium]);
+  return null;
+}
+
+/**
+ * Share the signed-in session with the Android keyboard process (via the native
+ * module's shared prefs) so its "Format" button can call Smart Formatting. No-ops
+ * off-Android. Clears the token on sign-out.
+ */
+function KeyboardBridge() {
+  const { session } = useAuth();
+  const { premium } = useStore();
+  useEffect(() => {
+    if (!VibeKeyboard.isAvailable) return; // no native keyboard in this build → nothing to sync
+    let alive = true;
+    (async () => {
+      const jwt = session?.access_token ?? '';
+      let did = '';
+      try {
+        did = await deviceId();
+      } catch {
+        did = '';
+      }
+      if (!alive) return;
+      VibeKeyboard.setAuth(jwt, SUPABASE_URL, SUPABASE_ANON_KEY, did);
+      VibeKeyboard.setPolishEnabled(!!session); // signed-in = free quota or Pro
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [session, premium]);
   return null;
 }
 

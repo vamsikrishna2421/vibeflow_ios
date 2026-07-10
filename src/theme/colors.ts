@@ -13,6 +13,7 @@
 import { Appearance } from 'react-native';
 
 import { getItem } from '../store/appGroup';
+import { prefGet } from '../store/prefs';
 
 // ---- COLOR palette (original) ----------------------------------------------
 const COLOR_DARK = {
@@ -46,19 +47,27 @@ const MONO_LIGHT: typeof COLOR_DARK = {
   statInner: '#FFFFFF', karaokeDim: 'rgba(23,23,26,0.5)',
 };
 
-function resolveScheme(): 'light' | 'dark' {
+// Read the cross-platform prefs store first (persists on Android + iOS), then
+// fall back to the App Group (kept so the iOS keyboard extension stays in sync),
+// then the OS default. The App Group no-ops off-iOS, which is why the prefs store
+// is the primary source of truth for the standalone app's theme.
+function resolvePref(key: string): string | null {
   try {
-    const pref = getItem('app_theme');
-    if (pref === 'light' || pref === 'dark') return pref;
-  } catch {}
+    return prefGet(key) ?? getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function resolveScheme(): 'light' | 'dark' {
+  const pref = resolvePref('app_theme');
+  if (pref === 'light' || pref === 'dark') return pref;
   return Appearance.getColorScheme() === 'light' ? 'light' : 'dark';
 }
 
 function resolvePalette(): 'color' | 'mono' {
-  try {
-    const pref = getItem('app_palette');
-    if (pref === 'color' || pref === 'mono') return pref;
-  } catch {}
+  const pref = resolvePref('app_palette');
+  if (pref === 'color' || pref === 'mono') return pref;
   return 'color'; // default: the vibrant original
 }
 

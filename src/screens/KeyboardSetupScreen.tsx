@@ -7,14 +7,129 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Linking, StyleSheet, Text, TextInput, View } from 'react-native';
+import { AppState, Linking, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useNav } from '@/navigation/nav';
 import { getItem } from '@/store/appGroup';
+import * as Keyboard from '@/services/keyboard';
 import { Colors, Radius } from '@/theme/colors';
 import { Card, GhostButton, PrimaryButton, Screen, Type, haptic } from '@/ui/kit';
 
 export function KeyboardSetupScreen() {
+  // Android has a real IME (the vibeflow-keyboard native module); iOS uses the
+  // App Group-backed extension flow below.
+  if (Platform.OS === 'android') return <AndroidKeyboardSetup />;
+  return <IOSKeyboardSetup />;
+}
+
+// ── Android: enable the InputMethodService, then switch to it ────────────────────
+function AndroidKeyboardSetup() {
+  const { pop } = useNav();
+  const [enabled, setEnabled] = useState(false);
+  const [chosen, setChosen] = useState(false);
+  const wasDone = useRef(false);
+
+  const readState = useCallback(() => {
+    const en = Keyboard.isEnabled();
+    const ch = Keyboard.isChosen();
+    setEnabled(en);
+    setChosen(ch);
+    if (en && ch && !wasDone.current) {
+      wasDone.current = true;
+      haptic.success();
+    }
+  }, []);
+
+  useEffect(() => {
+    readState();
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') readState();
+    });
+    const timer = setInterval(readState, 1200);
+    return () => {
+      sub.remove();
+      clearInterval(timer);
+    };
+  }, [readState]);
+
+  const done = enabled && chosen;
+
+  return (
+    <Screen title="Set up the keyboard" subtitle="Type by voice in any app" onBack={pop}>
+      {done ? (
+        <Card style={styles.successCard}>
+          <View style={styles.successIcon}>
+            <Ionicons name="checkmark-circle" size={40} color={Colors.success} />
+          </View>
+          <Text style={[Type.title, { fontSize: 22, marginTop: 10 }]}>You're all set 🎉</Text>
+          <Text style={[Type.bodySoft, { textAlign: 'center', marginTop: 6 }]}>
+            The VibeFlow keyboard is on. In any app, tap the keyboard-switch key (🌐) to pick VibeFlow,
+            then tap the mic and speak.
+          </Text>
+          <PrimaryButton label="Done" icon="checkmark" onPress={pop} style={{ marginTop: 18 }} />
+        </Card>
+      ) : (
+        <>
+          <StepRow
+            index={1}
+            done={enabled}
+            title="Turn on the VibeFlow keyboard"
+            subtitle="Languages & input → On-screen keyboard → Manage keyboards → enable VibeFlow."
+          />
+          <PrimaryButton
+            label="Open keyboard settings"
+            icon="settings-outline"
+            onPress={() => {
+              haptic.tap();
+              Keyboard.openImeSettings();
+            }}
+            style={{ marginTop: 8 }}
+          />
+
+          <StepRow
+            index={2}
+            done={chosen}
+            active={enabled}
+            title="Switch to VibeFlow"
+            subtitle="Tap below, then use the switcher to choose VibeFlow. You'll see the mic keyboard."
+          />
+          <GhostButton
+            label="Switch keyboard now"
+            icon="swap-horizontal"
+            onPress={() => {
+              haptic.tap();
+              Keyboard.openImePicker();
+            }}
+            style={{ marginTop: 6 }}
+          />
+
+          <Text style={[Type.caption, { marginTop: 26 }]}>TRY IT</Text>
+          <Card style={{ marginTop: 8 }}>
+            <Text style={[Type.bodySoft, { marginBottom: 10 }]}>
+              Tap here, switch to VibeFlow with the 🌐 key, and tap the mic — your words appear as you speak.
+            </Text>
+            <TextInput
+              placeholder="Tap and dictate with VibeFlow…"
+              placeholderTextColor={Colors.inkFaint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={styles.probe}
+            />
+            <View style={styles.statusRow}>
+              <Dot on={enabled} label="Enabled" />
+              <Dot on={chosen} label="Selected" />
+            </View>
+          </Card>
+
+          <GhostButton label="I'll do this later" onPress={pop} style={{ marginTop: 16 }} />
+        </>
+      )}
+    </Screen>
+  );
+}
+
+// ── iOS: App Group-backed keyboard-extension flow ───────────────────────────────
+function IOSKeyboardSetup() {
   const { pop } = useNav();
 
   const [installed, setInstalled] = useState(false);

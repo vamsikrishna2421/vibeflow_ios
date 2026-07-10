@@ -7,7 +7,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import React from 'react';
-import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { useNav } from '@/navigation/nav';
 import { useStore } from '@/store';
@@ -94,8 +94,14 @@ export function AboutScreen() {
           <NavRow
             icon="star-outline"
             label="Rate VibeFlow"
-            subtitle="Tell others on the App Store"
-            onPress={() => openURL('https://apps.apple.com/')}
+            subtitle={Platform.OS === 'ios' ? 'Tell others on the App Store' : 'Tell others on Google Play'}
+            onPress={() =>
+              openURL(
+                Platform.OS === 'ios'
+                  ? 'https://apps.apple.com/'
+                  : 'https://play.google.com/store/apps/details?id=com.vibeflow.mobile',
+              )
+            }
           />
         </View>
       </Card>

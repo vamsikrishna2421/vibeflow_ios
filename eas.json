@@ -18,12 +18,28 @@
       "ios": {
         "simulator": false
       }
+    },
+    "android-production": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "channel": "production",
+      "android": {
+        "buildType": "app-bundle"
+      }
     }
   },
   "submit": {
     "testflight": {
       "ios": {
-        "ascAppId": "6787420544"
+        "ascAppId": "6787420544",
+        "ascApiKeyPath": "./credentials/AuthKey_9L85G52S4Y.p8",
+        "ascApiKeyId": "9L85G52S4Y",
+        "ascApiKeyIssuerId": "7a5795f8-8265-4176-802b-88b189ae0a8a"
+      }
+    },
+    "android-production": {
+      "android": {
+        "track": "internal"
       }
     }
   }

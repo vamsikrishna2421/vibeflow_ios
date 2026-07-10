@@ -252,7 +252,18 @@ final class KeyboardViewController: UIInputViewController {
         guard built else { return }
         autoInsertIfReturned()
         loadLearnedWords()
-        flowMicState = .idle           // never carry a stale "recording" state
+        // Reflect the LIVE flow state instead of forcing idle — during a long
+        // dictation the user may switch fields / the keyboard may relaunch, and an
+        // idle-looking mic invited a tap that actually STOPPED the live recording.
+        if flowSessionAlive {
+            switch groupString("kbd_flow_status") ?? "" {
+            case "listening": flowMicState = .listening
+            case "processing": flowMicState = .processing
+            default: flowMicState = .idle
+            }
+        } else {
+            flowMicState = .idle
+        }
         applyMicAppearance()
         updateSuggestions()
         updateShiftForContext()
@@ -395,7 +406,12 @@ final class KeyboardViewController: UIInputViewController {
                 title = "💬 \(detail)"
                 errorClearTimer?.invalidate()
                 errorClearTimer = Timer.scheduledTimer(withTimeInterval: 3.5, repeats: false) { [weak self] _ in
-                    self?.store?.set("", forKey: "kbd_flow_status")
+                    // Only clear if an error is STILL the live status — the user may
+                    // have retried ("listening"/"processing"), and wiping that broke
+                    // the status-keyed delivery + the toggle-ack handshake.
+                    if (self?.groupString("kbd_flow_status") ?? "").hasPrefix("error") {
+                        self?.store?.set("", forKey: "kbd_flow_status")
+                    }
                     self?.updateSuggestions()
                 }
             } else {
@@ -838,7 +854,20 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: - Mic → dictation flow
 
-    private var flowSessionAlive: Bool { groupString("flow_session_active") == "true" }
+    /// A session is alive only if the flag is set AND the app's 2s heartbeat is
+    /// fresh — a force-quit/jetsam kill leaves stale flags (previously the mic
+    /// pulsed red and "recorded" into a dead process, and the ack failsafe was
+    /// blinded by a stale "listening" status). Stale flags are self-healed here.
+    private var flowSessionAlive: Bool {
+        guard groupString("flow_session_active") == "true" else { return false }
+        let beat = Double(groupString("flow_heartbeat_ts") ?? "") ?? 0
+        let fresh = Date().timeIntervalSince1970 * 1000 - beat < 6000
+        if !fresh {
+            store?.set("false", forKey: "flow_session_active")
+            store?.set("", forKey: "kbd_flow_status")
+        }
+        return fresh
+    }
 
     private func micTapped() {
         // Flow Session alive (Dynamic Island showing)? Record right here — no hop.
@@ -909,7 +938,9 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    /// Brief green confirmation when dictated text lands, then back to idle.
+    /// Brief green confirmation when dictated text lands, then back to the LIVE
+    /// state — a newer utterance may already be recording (forcing .idle here used
+    /// to stomp it, and the next tap then stopped a live recording).
     private func flashMicSuccess() {
         guard let mic = topMicButton else { return }
         mic.layer.removeAnimation(forKey: "flowPulse")
@@ -917,7 +948,11 @@ final class KeyboardViewController: UIInputViewController {
         mic.setImage(UIImage(systemName: "checkmark"), for: .normal)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
             guard let self else { return }
-            self.flowMicState = .idle
+            switch self.groupString("kbd_flow_status") ?? "" {
+            case "listening": self.flowMicState = .listening
+            case "processing": self.flowMicState = .processing
+            default: self.flowMicState = .idle
+            }
             self.applyMicAppearance()
         }
     }
@@ -967,13 +1002,20 @@ final class KeyboardViewController: UIInputViewController {
 
     private func insertFlowResult() {
         toggleAckTimer?.invalidate()
+        // If the keyboard isn't on screen the proxy is detached and insertText is a
+        // silent no-op — bail BEFORE consuming the dedupe timestamp so
+        // autoInsertIfReturned can deliver the text when the keyboard next appears.
+        guard view.window != nil else { return }
         let text = latest()
-        guard !text.isEmpty, text != lastFlowInserted else { return }
+        guard !text.isEmpty else { return }
+        // Dedupe by TIMESTAMP, not string equality — dictating the same words twice
+        // is legitimate (equality-dedupe silently dropped the repeat AND left the
+        // mic stuck pulsing "processing"). Same marker autoInsertIfReturned uses.
+        let savedTs = Double(groupString("latest_dictation_ts") ?? "") ?? 0
+        let insertedTs = Double(groupString("kbd_inserted_ts") ?? "") ?? 0
+        guard savedTs > insertedTs else { return }
+        store?.set(String(savedTs), forKey: "kbd_inserted_ts")
         lastFlowInserted = text
-        // Mark consumed so a later viewWillAppear doesn't re-insert the same text.
-        if let ts = groupString("latest_dictation_ts") {
-            store?.set(ts, forKey: "kbd_inserted_ts")
-        }
         smartInsert(text)
         flashMicSuccess()
         updateSuggestions()

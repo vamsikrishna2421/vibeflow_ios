@@ -1,0 +1,20 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!-- The VibeFlow on-screen keyboard. Registered as an InputMethodService so it
+         shows up in Settings → Languages & input → On-screen keyboard. The system
+         binds it with BIND_INPUT_METHOD; the intent-filter + @xml/method make it a
+         valid IME. exported=true is required for the system to bind on Android 12+. -->
+    <service
+      android:name="com.vibeflow.keyboard.VibeFlowKeyboardService"
+      android:label="VibeFlow"
+      android:permission="android.permission.BIND_INPUT_METHOD"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.view.InputMethod" />
+      </intent-filter>
+      <meta-data
+        android:name="android.view.im"
+        android:resource="@xml/method" />
+    </service>
+  </application>
+</manifest>
