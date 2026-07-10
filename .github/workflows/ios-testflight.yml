@@ -27,9 +27,9 @@ jobs:
       DIST_P12_PW: ${{ secrets.DIST_P12_PW }}
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode 26 (Swift 6.2 required by Expo SDK 57 modules)
+      - name: Select Xcode 26.3 (newest Swift 6.2.x; Expo SDK 57 uses `weak let`)
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.0.1.app
+          sudo xcode-select -s /Applications/Xcode_26.3.app
           xcodebuild -version
           swift --version
       - uses: actions/setup-node@v4
