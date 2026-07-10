@@ -38,7 +38,12 @@ jobs:
       - name: Install JS dependencies
         run: npm install --no-audit --no-fund
       - name: Install CocoaPods
-        run: cd ios && pod install
+        # Pin to the version that generated Podfile.lock (local prebuild uses
+        # 1.17.0; the runner ships 1.16.2, whose podspec checksums differ →
+        # "could not find compatible versions for ExpoModulesWorklets").
+        run: |
+          sudo gem install cocoapods -v 1.17.0 --no-document
+          cd ios && pod install
       - name: fastlane beta (sign + build + upload)
         run: cd ios && fastlane beta
       - name: Upload logs on failure
