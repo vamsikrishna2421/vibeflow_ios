@@ -1,8 +1,9 @@
 # Build the iOS app (app + keyboard + widget) on GitHub's free macOS runner and
 # upload to TestFlight via fastlane — no Mac, no EAS credits, no Apple password.
-# fastlane creates the distribution cert + App Store profiles for all 3 targets
-# from the App Store Connect API key (App Store profiles need no registered
-# devices). Secrets: ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8.
+# fastlane imports a stable Apple Distribution cert (.p12) and force-creates App
+# Store profiles for all 3 targets from the App Store Connect API key (App Store
+# profiles need no registered devices; manual signing avoids the dev-profile trap).
+# Secrets: ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8, DIST_P12_B64, DIST_P12_PW.
 name: iOS TestFlight
 
 on:
@@ -22,6 +23,8 @@ jobs:
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+      DIST_P12_B64: ${{ secrets.DIST_P12_B64 }}
+      DIST_P12_PW: ${{ secrets.DIST_P12_PW }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
