@@ -43,6 +43,18 @@ platform :ios do
       keychain_password: keychain_password,
     )
 
+    # gym (build_app) in this fastlane version has NO `api_key` option, so it won't
+    # forward the ASC auth flags to xcodebuild on its own (attempt 4 proved passing
+    # api_key here is a hard error). We inject the three authentication flags into
+    # xcodebuild ourselves via xcargs/export_xcargs. Combined with
+    # -allowProvisioningUpdates this lets xcodebuild reach the portal to create the
+    # App Store provisioning profiles for all three targets, no registered devices.
+    key_path = File.expand_path("~/asc_authkey.p8")
+    File.write(key_path, ENV["ASC_KEY_P8"])
+    auth = "-authenticationKeyPath #{key_path} " \
+           "-authenticationKeyID #{ENV['ASC_KEY_ID']} " \
+           "-authenticationKeyIssuerID #{ENV['ASC_ISSUER_ID']}"
+
     build_app(
       workspace: "VibeFlow.xcworkspace",
       scheme: "VibeFlow",
@@ -50,15 +62,12 @@ platform :ios do
       export_method: "app-store",
       output_directory: "build",
       clean: true,
-      # CRITICAL: hand the API key to gym so it forwards
-      # -authenticationKeyPath/-authenticationKeyID/-authenticationKeyIssuerID to
-      # the xcodebuild archive command. Without these, -allowProvisioningUpdates has
-      # no portal credentials, so xcodebuild can't create the App Store profiles and
-      # falls back to a (nonexistent) Development profile. THIS was the attempt-3 failure.
-      api_key: api_key,
-      # Automatic signing; xcodebuild now creates the App Store profiles + configures
-      # each target's capabilities via the API key, without any registered device.
-      xcargs: "-allowProvisioningUpdates DEVELOPMENT_TEAM=#{TEAM_ID}",
+      # Archive: automatic signing; the auth flags give -allowProvisioningUpdates the
+      # portal credentials it needs to create profiles + configure capabilities.
+      xcargs: "-allowProvisioningUpdates #{auth} DEVELOPMENT_TEAM=#{TEAM_ID}",
+      # Export (-exportArchive) also needs the credentials to fetch/install the
+      # distribution profiles; DEVELOPMENT_TEAM isn't a valid export setting here.
+      export_xcargs: "-allowProvisioningUpdates #{auth}",
       export_options: {
         method: "app-store",
         teamID: TEAM_ID,
