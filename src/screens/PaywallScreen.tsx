@@ -33,6 +33,8 @@ interface PlanOption {
   id: string;
   title: string;
   price: string;
+  /** Anchor price shown struck through (early-bird marketing). */
+  strikePrice?: string;
   cadence: string;
   caption: string;
   badge?: string;
@@ -44,9 +46,11 @@ const PLACEHOLDER_PLANS: PlanOption[] = [
   {
     id: 'placeholder.monthly',
     title: 'Monthly',
-    price: '$4.99',
+    price: '$0.99',
+    strikePrice: '$4.99',
     cadence: 'per month',
-    caption: 'Billed monthly, cancel anytime',
+    caption: 'Early-bird launch price — lock it in',
+    badge: 'EARLY BIRD',
     pkg: null,
   },
   {
@@ -55,7 +59,6 @@ const PLACEHOLDER_PLANS: PlanOption[] = [
     price: '$29.99',
     cadence: 'per year',
     caption: 'Billed yearly — save 50%',
-    badge: 'BEST VALUE',
     pkg: null,
   },
 ];
@@ -109,13 +112,21 @@ function planCadence(pkg: PurchasesPackage): string {
 /** Map a RevenueCat package into our display model. */
 function toPlanOption(pkg: PurchasesPackage): PlanOption {
   const type = String(pkg.packageType);
+  // Early-bird anchor: while the monthly launch price is under $2, show the
+  // regular $4.99 struck through (USD only — a wrong-currency anchor is worse
+  // than none).
+  const earlyBird =
+    type === 'MONTHLY' && pkg.product.currencyCode === 'USD' && pkg.product.price > 0 && pkg.product.price < 2;
   return {
     id: pkg.identifier,
     title: planTitle(pkg),
     price: pkg.product.priceString,
+    strikePrice: earlyBird ? '$4.99' : undefined,
     cadence: planCadence(pkg),
-    caption: pkg.product.description || (type === 'ANNUAL' ? 'Best long-term value' : 'Auto-renewing subscription'),
-    badge: type === 'ANNUAL' ? 'BEST VALUE' : undefined,
+    caption: earlyBird
+      ? 'Early-bird launch price — lock it in'
+      : pkg.product.description || (type === 'ANNUAL' ? 'Best long-term value' : 'Auto-renewing subscription'),
+    badge: earlyBird ? 'EARLY BIRD' : type === 'ANNUAL' ? 'BEST VALUE' : undefined,
     pkg,
   };
 }
@@ -312,6 +323,7 @@ function PlanCard({
           <Text style={[Type.bodySoft, { marginTop: 2 }]}>{plan.caption}</Text>
         </View>
         <View style={styles.priceCol}>
+          {plan.strikePrice ? <Text style={styles.strikePrice}>{plan.strikePrice}</Text> : null}
           <Text style={styles.price}>{plan.price}</Text>
           {plan.cadence ? <Text style={styles.cadence}>{plan.cadence}</Text> : null}
         </View>
@@ -397,6 +409,7 @@ const styles = StyleSheet.create({
   planTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   priceCol: { alignItems: 'flex-end' },
   price: { color: Colors.ink, fontSize: 18, fontWeight: '800' },
+  strikePrice: { color: Colors.inkFaint, fontSize: 13, textDecorationLine: 'line-through' },
   cadence: { color: Colors.inkFaint, fontSize: 12, marginTop: 2 },
 
   noteRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12, paddingHorizontal: 2 },

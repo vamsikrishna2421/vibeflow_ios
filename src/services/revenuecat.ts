@@ -1,16 +1,23 @@
 /**
- * RevenueCat (Apple IAP) glue. The RevenueCat App User ID is set to the Supabase
- * user id, so the RevenueCat→Supabase webhook can flip `profiles.is_pro` for the
- * right account — which is what actually lifts the server-side AI quota to unlimited.
+ * RevenueCat (IAP) glue for BOTH stores. The RevenueCat App User ID is set to the
+ * Supabase user id, so the RevenueCat→Supabase webhook can flip `profiles.is_pro`
+ * for the right account — which is what actually lifts the server-side AI quota to
+ * unlimited.
  *
- * The iOS SDK key is publishable (like the Supabase anon key). Fill it in below from
- * RevenueCat → Project → API keys → "Public app-specific (Apple)". Until it's set,
- * every call is a safe no-op so the app runs unchanged.
+ * SDK keys are publishable (like the Supabase anon key), from RevenueCat →
+ * Project → API keys → "Public app-specific". Until a platform's key is set,
+ * every call on that platform is a safe no-op so the app runs unchanged.
+ *
+ * iOS note: key stays unset until the Apple account's Paid Apps Agreement is
+ * signed (India entity change in flight) — Android monetizes first.
  */
+import { Platform } from 'react-native';
 import Purchases, { LOG_LEVEL } from 'react-native-purchases';
 
-// TODO(founder): paste the RevenueCat Apple public SDK key (looks like "appl_XXXXXXXX").
+// TODO(founder): paste the RevenueCat Apple public SDK key once Paid Apps is signed.
 export const REVENUECAT_IOS_KEY = 'appl_REPLACE_WITH_YOUR_KEY';
+// RevenueCat Google public SDK key (Play app com.vibeflow.mobile).
+export const REVENUECAT_ANDROID_KEY = 'goog_idpQxSobScOwDQBOrRgzcxHRfMG';
 
 const ENTITLEMENT_ID = 'pro'; // must match the entitlement identifier in RevenueCat
 
@@ -20,13 +27,14 @@ export function revenueCatReady(): boolean {
   return configured;
 }
 
-/** Configure once at app launch. No-op until a real key is set. */
+/** Configure once at app launch. No-op until the platform's real key is set. */
 export function configureRevenueCat(): void {
   if (configured) return;
-  if (!REVENUECAT_IOS_KEY || REVENUECAT_IOS_KEY.includes('REPLACE')) return;
+  const key = Platform.OS === 'ios' ? REVENUECAT_IOS_KEY : REVENUECAT_ANDROID_KEY;
+  if (!key || key.includes('REPLACE')) return;
   try {
     if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.WARN);
-    Purchases.configure({ apiKey: REVENUECAT_IOS_KEY });
+    Purchases.configure({ apiKey: key });
     configured = true;
   } catch {
     // leave unconfigured; the app still works, IAP just stays inert
