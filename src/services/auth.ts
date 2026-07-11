@@ -70,6 +70,43 @@ export async function signOut(): Promise<void> {
   await supabase.auth.signOut();
 }
 
+/**
+ * Permanently delete the signed-in user's account + all their data, then sign out
+ * locally. Required by the App Store (Guideline 5.1.1(v)) and Google Play. The
+ * server deletes the profile/devices rows and the auth user itself; we then clear
+ * the local session so the app returns to the signed-out state. Does NOT cancel a
+ * store subscription — the UI tells the user to do that separately.
+ */
+export async function deleteAccount(): Promise<void> {
+  const { data } = await supabase.auth.getSession();
+  const jwt = data?.session?.access_token;
+  if (!jwt) throw new Error('You are not signed in.');
+  const res = await fetch(`${FUNCTIONS_URL}/delete-account`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      apikey: SUPABASE_ANON_KEY,
+      'Content-Type': 'application/json',
+    },
+  });
+  // 200 = deleted now. 401 = the server no longer recognizes this user — i.e. the
+  // account is ALREADY gone (a prior attempt succeeded but its 200 was lost on a
+  // flaky network). Both are success: clear the local session so the app returns to
+  // signed-out, and never loop forever telling the user a completed delete "failed".
+  if (res.ok || res.status === 401) {
+    await supabase.auth.signOut().catch(() => {});
+    return;
+  }
+  // A real server-side failure (e.g. 500): the account still exists, so keep the user
+  // signed in to retry, and surface the reason.
+  let msg = 'Could not delete your account. Please try again.';
+  try {
+    const body = await res.json();
+    if (body?.error) msg = `Deletion failed (${body.error}). Please try again.`;
+  } catch {}
+  throw new Error(msg);
+}
+
 /** Register this install as the active mobile device (supersedes older ones). */
 export async function claimDevice(): Promise<void> {
   const { data } = await supabase.auth.getSession();

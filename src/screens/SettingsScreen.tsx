@@ -14,7 +14,7 @@ import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View }
 
 import { CurationOptions } from '@/core';
 import { useAuth } from '@/hooks/useAuth';
-import { signInWithApple, signInWithGoogle, signOut } from '@/services/auth';
+import { deleteAccount, signInWithApple, signInWithGoogle, signOut } from '@/services/auth';
 import { fetchQuota, quotaLabel, Quota } from '@/services/quota';
 import { useNav } from '@/navigation/nav';
 import { LANGUAGES, languageLabel, useStore } from '@/store';
@@ -72,6 +72,37 @@ export function SettingsScreen() {
     } finally {
       setAuthBusy(false);
     }
+  };
+  // Account deletion (App Store 5.1.1(v) + Play requirement). Two-step: a
+  // destructive confirm, then a server wipe of the account + all data, then a
+  // local sign-out. We also remind the user that it doesn't cancel a store sub.
+  const confirmDeleteAccount = () => {
+    if (authBusy) return;
+    haptic.warning();
+    Alert.alert(
+      'Delete account?',
+      "This permanently deletes your VibeFlow account and all your data — profile, usage history and device list. This can't be undone.\n\nIf you have a paid subscription, cancel it separately in the App Store or Play Store; deleting your account here doesn't cancel it.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setAuthBusy(true);
+            try {
+              await deleteAccount();
+              haptic.success();
+              Alert.alert('Account deleted', 'Your account and data have been removed.');
+            } catch (e: any) {
+              haptic.warning();
+              Alert.alert("Couldn't delete account", e?.message ?? String(e));
+            } finally {
+              setAuthBusy(false);
+            }
+          },
+        },
+      ],
+    );
   };
   // Appearance: explicit choice persisted in the App Group; styles resolve at JS
   // launch, so applying re-themes via an instant reload.
@@ -171,9 +202,15 @@ export function SettingsScreen() {
                 <Text style={[Type.bodySoft, { marginTop: 2 }]}>{quotaLabel(quota)}</Text>
               </View>
             </View>
-            <Pressable onPress={runAuth(signOut)} style={({ pressed }) => [styles.signOutBtn, pressed && { opacity: 0.7 }]}>
-              <Text style={styles.signOutText}>Sign out</Text>
-            </Pressable>
+            <View style={styles.acctActions}>
+              <Pressable disabled={authBusy} onPress={runAuth(signOut)} style={({ pressed }) => [styles.signOutBtn, pressed && { opacity: 0.6 }]}>
+                <Text style={styles.signOutText}>Sign out</Text>
+              </Pressable>
+              <Divider />
+              <Pressable disabled={authBusy} onPress={confirmDeleteAccount} style={({ pressed }) => [styles.signOutBtn, pressed && { opacity: 0.6 }]}>
+                <Text style={styles.deleteText}>Delete account</Text>
+              </Pressable>
+            </View>
           </>
         ) : (
           <>
@@ -561,8 +598,10 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.outline,
   },
   googleBtnText: { color: Colors.ink, fontSize: 15, fontWeight: '600' },
+  acctActions: { gap: 4 },
   signOutBtn: { alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 2 },
-  signOutText: { color: Colors.accentRed, fontSize: 13.5, fontWeight: '600' },
+  signOutText: { color: Colors.inkSoft, fontSize: 13.5, fontWeight: '600' },
+  deleteText: { color: Colors.accentRed, fontSize: 13.5, fontWeight: '600' },
   segRow: { flexDirection: 'row', gap: 8 },
   seg: {
     flex: 1,
