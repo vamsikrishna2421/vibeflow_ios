@@ -48,7 +48,7 @@
     },
     "android": {
       "package": "com.vibeflow.mobile",
-      "versionCode": 4,
+      "versionCode": 5,
       "adaptiveIcon": {
         "backgroundColor": "#0B0A14",
         "foregroundImage": "./assets/adaptive-icon.png"
