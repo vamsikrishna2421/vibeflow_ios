@@ -274,9 +274,22 @@ final class KeyboardViewController: UIInputViewController {
 
     /// Report to the app (via the App Group) that the keyboard has run and whether
     /// it currently has Full Access — powers the guided setup screen's live checks.
+    ///
+    /// The app reads these cross-process via `CFPreferencesCopyAppValue` on the App
+    /// Group domain. A plain `UserDefaults(suiteName:)` write from this extension isn't
+    /// reliably visible to that read (separate cache, no forced flush), which left the
+    /// setup screen's "Keyboard active" / "Full Access" checks stuck grey even when the
+    /// keyboard was clearly running. Mirror the writes through CFPreferences on the same
+    /// domain and force a sync so the app sees them immediately.
     private func recordKeyboardState() {
+        let fa = hasFullAccess ? "true" : "false"
         store?.set("true", forKey: "kbd_installed")
-        store?.set(hasFullAccess ? "true" : "false", forKey: "kbd_full_access")
+        store?.set(fa, forKey: "kbd_full_access")
+        store?.synchronize()
+
+        CFPreferencesSetAppValue("kbd_installed" as CFString, "true" as CFString, appGroup as CFString)
+        CFPreferencesSetAppValue("kbd_full_access" as CFString, fa as CFString, appGroup as CFString)
+        CFPreferencesAppSynchronize(appGroup as CFString)
     }
 
     override func traitCollectionDidChange(_ previous: UITraitCollection?) {
