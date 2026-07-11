@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VibeFlow — Play Feature Graphic (1024×500)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 28px 16px 48px;
+    background: #0B0A14;
+    color: #E9E7F2;
+    font: 15px/1.5 -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  }
+  h1 { font-size: 17px; font-weight: 700; margin: 0; letter-spacing: -0.2px; }
+  .sub { color: #A7A3C2; font-size: 13px; margin: -8px 0 4px; text-align: center; max-width: 640px; }
+  .frame {
+    width: min(100%, 1024px);
+    box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+    border-radius: 12px;
+    overflow: hidden;
+    line-height: 0;
+  }
+  .frame svg { width: 100%; height: auto; display: block; }
+  .bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  button {
+    appearance: none; border: 0; cursor: pointer;
+    font: 600 14px/1 -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    padding: 12px 20px; border-radius: 12px; color: #fff;
+    background: linear-gradient(135deg, #8B5CF6, #5FA8FF);
+    box-shadow: 0 8px 22px rgba(124,92,255,0.35);
+  }
+  button:active { transform: translateY(1px); }
+  .ghost { background: rgba(255,255,255,0.06); box-shadow: none; color: #C9C6DE; }
+  .hint { color: #6E6A8A; font-size: 12px; text-align: center; max-width: 620px; }
+  code { background: rgba(255,255,255,0.07); padding: 1px 6px; border-radius: 6px; font-size: 12px; }
+</style>
+</head>
+<body>
+  <h1>VibeFlow — Play feature graphic</h1>
+  <p class="sub">1024 × 500 · mandatory for the Play Store listing. Click <b>Download PNG</b> for a pixel-perfect export — no screenshot needed.</p>
+
+  <div class="frame">
+    <!-- ===== THE BANNER: exactly 1024×500 ===== -->
+    <svg id="banner" xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500" font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif">
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#AF5CFF"/>
+          <stop offset="0.52" stop-color="#7C5CFF"/>
+          <stop offset="1" stop-color="#4FA6FF"/>
+        </linearGradient>
+        <radialGradient id="glow" cx="0.18" cy="0.1" r="0.9">
+          <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.28"/>
+          <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="vignette" cx="0.85" cy="0.95" r="0.9">
+          <stop offset="0" stop-color="#2A0E5A" stop-opacity="0.45"/>
+          <stop offset="0.6" stop-color="#2A0E5A" stop-opacity="0"/>
+        </radialGradient>
+        <linearGradient id="mic" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#8B5CF6"/>
+          <stop offset="1" stop-color="#5FA8FF"/>
+        </linearGradient>
+        <radialGradient id="phoneGlow" cx="0.5" cy="0.42" r="0.6">
+          <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.35"/>
+          <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+        </radialGradient>
+        <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="18" stdDeviation="26" flood-color="#150733" flood-opacity="0.45"/>
+        </filter>
+      </defs>
+
+      <!-- background -->
+      <rect width="1024" height="500" fill="url(#bg)"/>
+      <rect width="1024" height="500" fill="url(#vignette)"/>
+      <rect width="1024" height="500" fill="url(#glow)"/>
+
+      <!-- ===== LEFT: wordmark + tagline ===== -->
+      <!-- app-icon-style mark: rounded square with a mic -->
+      <g transform="translate(72,120)">
+        <rect x="0" y="0" width="64" height="64" rx="18" fill="#FFFFFF" opacity="0.14"/>
+        <rect x="0" y="0" width="64" height="64" rx="18" fill="none" stroke="#FFFFFF" stroke-opacity="0.35"/>
+        <g transform="translate(32,30)" fill="#FFFFFF">
+          <rect x="-7" y="-13" width="14" height="24" rx="7"/>
+          <path d="M -13 2 A 13 13 0 0 0 13 2" fill="none" stroke="#FFFFFF" stroke-width="3.4" stroke-linecap="round"/>
+          <rect x="-1.7" y="15" width="3.4" height="9" rx="1.7"/>
+        </g>
+      </g>
+
+      <text x="72" y="250" font-size="94" font-weight="800" letter-spacing="-3" fill="#FFFFFF">VibeFlow</text>
+      <text x="74" y="312" font-size="37" font-weight="600" letter-spacing="-0.5" fill="#FFFFFF" fill-opacity="0.96">Talk. It types it, formatted.</text>
+      <text x="74" y="356" font-size="24" font-weight="400" fill="#FFFFFF" fill-opacity="0.78">Speak in any app — AI writes it out clean.</text>
+
+      <!-- little "50 free" chip -->
+      <g transform="translate(74,392)">
+        <rect x="0" y="0" width="196" height="40" rx="20" fill="#FFFFFF" fill-opacity="0.16"/>
+        <circle cx="24" cy="20" r="6" fill="#43E6C1"/>
+        <text x="42" y="26" font-size="17" font-weight="600" fill="#FFFFFF">50 free AI formats</text>
+      </g>
+
+      <!-- ===== RIGHT: phone mockup ===== -->
+      <ellipse cx="812" cy="250" rx="200" ry="220" fill="url(#phoneGlow)"/>
+      <g filter="url(#soft)">
+        <!-- phone body -->
+        <rect x="688" y="46" width="250" height="408" rx="42" fill="#050409"/>
+        <rect x="688" y="46" width="250" height="408" rx="42" fill="none" stroke="#FFFFFF" stroke-opacity="0.14"/>
+        <!-- screen -->
+        <rect x="700" y="58" width="226" height="384" rx="32" fill="#0B0A14"/>
+        <!-- notch -->
+        <rect x="783" y="70" width="60" height="9" rx="4.5" fill="#1C1830"/>
+
+        <!-- message thread: the FORMATTED result -->
+        <text x="720" y="108" font-size="12" font-weight="600" fill="#6E6A8A" letter-spacing="0.4">MESSAGES</text>
+        <g>
+          <rect x="720" y="120" width="186" height="86" rx="16" fill="#1A1726"/>
+          <text x="736" y="148" font-size="13.5" font-weight="500" fill="#FFFFFF">Hi Priya — sending the Q3</text>
+          <text x="736" y="169" font-size="13.5" font-weight="500" fill="#FFFFFF">numbers by Friday.</text>
+          <text x="736" y="190" font-size="13.5" font-weight="500" fill="#FFFFFF">Thanks!</text>
+        </g>
+        <!-- tiny "you spoke" caption bubble -->
+        <g>
+          <rect x="756" y="216" width="150" height="30" rx="15" fill="#120F18"/>
+          <text x="771" y="236" font-size="11.5" font-weight="400" fill="#8B86A6">“send priya the q3 numbers…”</text>
+        </g>
+
+        <!-- keyboard panel -->
+        <path d="M700 316 h226 v94 a32 32 0 0 1 -32 32 h-162 a32 32 0 0 1 -32 -32 z" fill="#131019"/>
+        <!-- waveform -->
+        <g fill="url(#mic)">
+          <rect x="734" y="342" width="6" height="16" rx="3"/>
+          <rect x="748" y="334" width="6" height="32" rx="3"/>
+          <rect x="762" y="328" width="6" height="44" rx="3"/>
+          <rect x="776" y="338" width="6" height="24" rx="3"/>
+          <rect x="880" y="340" width="6" height="20" rx="3"/>
+          <rect x="866" y="332" width="6" height="36" rx="3"/>
+          <rect x="852" y="336" width="6" height="28" rx="3"/>
+        </g>
+        <!-- mic button (the deliberate pop) -->
+        <circle cx="813" cy="350" r="40" fill="url(#mic)"/>
+        <circle cx="813" cy="350" r="47" fill="none" stroke="url(#mic)" stroke-opacity="0.4" stroke-width="2"/>
+        <g transform="translate(813,350)" fill="#FFFFFF">
+          <rect x="-8" y="-16" width="16" height="27" rx="8"/>
+          <path d="M -15 2 A 15 15 0 0 0 15 2" fill="none" stroke="#FFFFFF" stroke-width="3.6" stroke-linecap="round"/>
+          <rect x="-2" y="17" width="4" height="10" rx="2"/>
+        </g>
+        <!-- format pill -->
+        <rect x="720" y="404" width="80" height="26" rx="13" fill="#FFFFFF" fill-opacity="0.08"/>
+        <text x="760" y="421" font-size="12" font-weight="600" fill="#C9C6DE" text-anchor="middle">Format</text>
+        <rect x="826" y="404" width="80" height="26" rx="13" fill="#FFFFFF" fill-opacity="0.08"/>
+        <text x="866" y="421" font-size="12" font-weight="600" fill="#C9C6DE" text-anchor="middle">Styles</text>
+      </g>
+    </svg>
+    <!-- ===== /BANNER ===== -->
+  </div>
+
+  <div class="bar">
+    <button onclick="downloadPng()">Download PNG (1024×500)</button>
+    <button class="ghost" onclick="downloadSvg()">Download SVG (editable)</button>
+  </div>
+  <p class="hint">The phone is clean vector art (VibeFlow's real UI motifs — mic pop, waveform, formatted message). Feature graphics are marketing banners, so this is store-legal as-is. Swap in a real screenshot later by editing the SVG if you prefer. Exports as <code>vibeflow-feature-graphic_1024x500.png</code>.</p>
+
+<script>
+  function serialized() {
+    const svg = document.getElementById('banner').cloneNode(true);
+    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    return new XMLSerializer().serializeToString(svg);
+  }
+  function downloadPng() {
+    const blob = new Blob([serialized()], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = function () {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1024; canvas.height = 500;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, 1024, 500);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(function (b) {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(b);
+        a.download = 'vibeflow-feature-graphic_1024x500.png';
+        document.body.appendChild(a); a.click(); a.remove();
+      }, 'image/png');
+    };
+    img.src = url;
+  }
+  function downloadSvg() {
+    const blob = new Blob([serialized()], { type: 'image/svg+xml;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'vibeflow-feature-graphic_1024x500.svg';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+</script>
+</body>
+</html>
+</content>
