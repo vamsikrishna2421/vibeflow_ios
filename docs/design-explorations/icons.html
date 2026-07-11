@@ -1,0 +1,96 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1180px;height:520px;background:#15141c;overflow:hidden;
+    font-family:-apple-system,"SF Pro Display","Helvetica Neue",Arial,sans-serif}
+  .wrap{display:flex;gap:70px;padding:60px 70px;align-items:flex-start}
+  .cell{width:300px;text-align:center}
+  .ico{width:220px;height:220px;margin:0 auto;border-radius:50px;position:relative;overflow:hidden;
+    box-shadow:0 20px 44px rgba(0,0,0,0.5)}
+  .lab{margin-top:26px;font-size:22px;font-weight:700;color:#F5F4FA}
+  .sub{margin-top:6px;font-size:15px;color:#8B86A6}
+  svg{display:block}
+</style></head>
+<body>
+<div class="wrap">
+
+  <div class="cell">
+    <div class="ico">
+      <svg width="220" height="220" viewBox="0 0 220 220">
+        <defs>
+          <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#A855F7"/><stop offset="0.55" stop-color="#7C5CFF"/><stop offset="1" stop-color="#56B6FF"/>
+          </linearGradient>
+          <radialGradient id="glow1" cx="0.5" cy="0.42" r="0.5">
+            <stop offset="0" stop-color="#7C5CFF" stop-opacity="0.5"/><stop offset="1" stop-color="#7C5CFF" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <rect width="220" height="220" fill="#0B0A14"/>
+        <circle cx="110" cy="96" r="86" fill="url(#glow1)"/>
+        <g transform="translate(110,104)" fill="url(#g1)">
+          <rect x="-26" y="-58" width="52" height="86" rx="26"/>
+          <path d="M -50 -6 A 50 50 0 0 0 50 -6" fill="none" stroke="url(#g1)" stroke-width="12" stroke-linecap="round"/>
+          <rect x="-6" y="40" width="12" height="30" rx="6"/>
+          <rect x="-30" y="66" width="60" height="12" rx="6"/>
+        </g>
+      </svg>
+    </div>
+    <div class="lab">A · Microphone</div>
+    <div class="sub">safe, instantly legible</div>
+  </div>
+
+  <div class="cell">
+    <div class="ico">
+      <svg width="220" height="220" viewBox="0 0 220 220">
+        <defs>
+          <linearGradient id="g2" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#A855F7"/><stop offset="0.5" stop-color="#7C5CFF"/><stop offset="1" stop-color="#56B6FF"/>
+          </linearGradient>
+          <radialGradient id="glow2" cx="0.5" cy="0.5" r="0.55">
+            <stop offset="0" stop-color="#7C5CFF" stop-opacity="0.42"/><stop offset="1" stop-color="#7C5CFF" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <rect width="220" height="220" fill="#0B0A14"/>
+        <circle cx="110" cy="110" r="96" fill="url(#glow2)"/>
+        <g stroke="none" fill="url(#g2)">
+          <rect x="44" y="94" width="11" height="32" rx="5.5"/>
+          <rect x="66" y="78" width="11" height="64" rx="5.5"/>
+          <rect x="88" y="60" width="11" height="100" rx="5.5"/>
+          <rect x="110" y="72" width="11" height="76" rx="5.5"/>
+          <rect x="132" y="86" width="11" height="48" rx="5.5"/>
+        </g>
+        <path d="M40 130 C 78 96, 100 150, 128 120 S 168 96, 182 108" fill="none" stroke="url(#g2)" stroke-width="10" stroke-linecap="round" opacity="0.95"/>
+      </svg>
+    </div>
+    <div class="lab">B · Voice-flow</div>
+    <div class="sub">on-name, distinctive</div>
+  </div>
+
+  <div class="cell">
+    <div class="ico">
+      <svg width="220" height="220" viewBox="0 0 220 220">
+        <defs>
+          <radialGradient id="orb3" cx="0.4" cy="0.32" r="0.75">
+            <stop offset="0" stop-color="#C77DFF"/><stop offset="0.5" stop-color="#7C5CFF"/><stop offset="1" stop-color="#4C7BFF"/>
+          </radialGradient>
+          <radialGradient id="glow3" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#7C5CFF" stop-opacity="0.65"/><stop offset="1" stop-color="#7C5CFF" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <rect width="220" height="220" fill="#08070F"/>
+        <circle cx="110" cy="110" r="98" fill="url(#glow3)"/>
+        <circle cx="110" cy="110" r="62" fill="url(#orb3)"/>
+        <ellipse cx="92" cy="86" rx="34" ry="24" fill="#ffffff" opacity="0.22"/>
+        <g transform="translate(110,112)" fill="#fff">
+          <rect x="-11" y="-24" width="22" height="38" rx="11"/>
+          <path d="M -21 2 A 21 21 0 0 0 21 2" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+          <rect x="-2.5" y="22" width="5" height="12" rx="2.5"/>
+        </g>
+      </svg>
+    </div>
+    <div class="lab">C · Voice orb</div>
+    <div class="sub">matches the in-app hero</div>
+  </div>
+
+</div>
+</body></html>

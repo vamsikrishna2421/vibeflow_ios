@@ -1,0 +1,64 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{margin:0;background:#000;font-family:-apple-system,"SF Pro Display","Helvetica Neue",Arial,sans-serif}
+  .screen{position:relative;width:440px;height:940px;overflow:hidden;background:#0B0A14;color:#F5F4FA;margin:0 auto}
+  .aura{position:absolute;top:250px;left:50%;transform:translateX(-50%);
+    width:460px;height:460px;border-radius:50%;
+    background:radial-gradient(closest-side,rgba(124,92,255,0.20),rgba(124,92,255,0) 70%)}
+  .top{position:absolute;top:52px;left:24px;right:24px;display:flex;align-items:center;justify-content:space-between}
+  .wm{font-size:24px;font-weight:800;letter-spacing:-0.5px}.wm b{color:#7C5CFF}
+  .badge{font-size:11px;font-weight:700;letter-spacing:1px;color:#43E6C1;white-space:nowrap;
+    border:1px solid rgba(67,230,193,0.35);background:rgba(67,230,193,0.08);padding:5px 11px;border-radius:999px}
+  .title{position:absolute;top:150px;left:0;right:0;text-align:center;font-size:24px;font-weight:650;letter-spacing:-0.4px}
+
+  .orbwrap{position:absolute;top:220px;left:50%;transform:translateX(-50%);width:230px;height:230px;
+    display:flex;align-items:center;justify-content:center}
+  .ring{position:absolute;border-radius:50%}
+  .ring.a{width:210px;height:210px;border:1px solid rgba(255,255,255,0.06)}
+  .ring.b{width:178px;height:178px;border:1px solid rgba(168,85,247,0.18)}
+  .orb{position:relative;width:150px;height:150px;border-radius:50%;
+    background:linear-gradient(150deg,#A855F7 0%,#7C5CFF 52%,#56B6FF 100%);
+    box-shadow:0 16px 46px rgba(124,92,255,0.45);display:flex;align-items:center;justify-content:center}
+  .orb::before{content:"";position:absolute;inset:0;border-radius:50%;
+    background:radial-gradient(120px 90px at 38% 28%,rgba(255,255,255,0.35),rgba(255,255,255,0) 60%)}
+  .orb::after{content:"";position:absolute;inset:0;border-radius:50%;border:1px solid rgba(255,255,255,0.22)}
+
+  .wave{position:absolute;top:470px;left:0;right:0;display:flex;justify-content:center;align-items:center;gap:5px;height:40px}
+  .wave i{width:4px;border-radius:99px;background:linear-gradient(180deg,#8B5CF6,#5FA8FF);display:block}
+  .hint{position:absolute;top:530px;left:44px;right:44px;text-align:center;
+    font-size:14px;line-height:21px;color:#8F8AA6;font-weight:450}
+
+  .steps{position:absolute;top:648px;left:30px;right:30px;display:flex;flex-direction:column;gap:20px}
+  .step{display:flex;align-items:flex-start;gap:14px}
+  .snum{width:30px;height:30px;flex:0 0 30px;border-radius:50%;background:rgba(124,92,255,0.16);
+    color:#B7ABFF;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center}
+  .stxt{font-size:15px;line-height:21px;color:#C9C6DE;flex:1 1 auto;min-width:0}
+  .stxt b{color:#F5F4FA;font-weight:600}
+</style></head>
+<body>
+<div class="screen">
+  <div class="aura"></div>
+  <div class="top"><div class="wm">Vibe<b>Flow</b></div><div class="badge">ON-DEVICE</div></div>
+  <div class="title">Tap to talk</div>
+
+  <div class="orbwrap">
+    <div class="ring a"></div><div class="ring b"></div>
+    <div class="orb">
+      <svg width="32" height="48" viewBox="0 0 34 52" fill="#fff">
+        <rect x="9" y="0" width="16" height="30" rx="8"/>
+        <path d="M2 22 a15 15 0 0 0 30 0" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round"/>
+        <rect x="15" y="40" width="4" height="12" rx="2"/></svg>
+    </div>
+  </div>
+
+  <div class="wave"><i style="height:10px"></i><i style="height:16px"></i><i style="height:24px"></i><i style="height:30px"></i><i style="height:24px"></i><i style="height:16px"></i><i style="height:10px"></i></div>
+  <div class="hint">Speak naturally. Say &ldquo;new line&rdquo;, &ldquo;comma&rdquo;, or &ldquo;question mark&rdquo;. Say &ldquo;scratch that&rdquo; to undo.</div>
+
+  <div class="steps">
+    <div class="step"><div class="snum">1</div><div class="stxt"><b>Dictate here</b> — your words are formatted instantly.</div></div>
+    <div class="step"><div class="snum">2</div><div class="stxt">Switch to the VibeFlow keyboard (🌐 globe key) in any app.</div></div>
+    <div class="step"><div class="snum">3</div><div class="stxt">Tap <b>&ldquo;Insert latest&rdquo;</b> to drop them at the cursor.</div></div>
+  </div>
+</div>
+</body></html>
