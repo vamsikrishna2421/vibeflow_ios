@@ -8,20 +8,20 @@
  * fakes a purchase — it only explains that billing ships in the production build.
  */
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Purchases, { PurchasesPackage } from 'react-native-purchases';
 
 import { useNav } from '@/navigation/nav';
 import { useStore } from '@/store';
-import { Colors, Radius } from '@/theme/colors';
+import { brandGradient, Colors, Radius } from '@/theme/colors';
 import {
   Badge,
   Card,
   GhostButton,
   PrimaryButton,
   Screen,
-  SectionTitle,
   Type,
   haptic,
 } from '@/ui/kit';
@@ -56,19 +56,24 @@ const PLACEHOLDER_PLANS: PlanOption[] = [
   {
     id: 'placeholder.annual',
     title: 'Annual',
-    price: '$29.99',
+    // Early-bird annual — must stay BELOW 12× the monthly ($0.99) or "best value"
+    // is a lie. $9.99/yr = $0.83/mo.
+    price: '$9.99',
     cadence: 'per year',
-    caption: 'Billed yearly — save 50%',
+    caption: '$0.83/mo · billed yearly',
+    badge: 'BEST VALUE',
     pkg: null,
   },
 ];
 
-const FEATURES: { icon: keyof typeof Ionicons.glyphMap; text: string }[] = [
-  { icon: 'sparkles', text: 'AI Smart Formatting (grammar & tone)' },
-  { icon: 'time', text: 'Unlimited dictation history' },
-  { icon: 'globe', text: 'Priority on-device languages' },
-  { icon: 'extension-puzzle', text: 'Custom snippets, vocabulary & corrections without limits' },
-  { icon: 'heart', text: 'Support indie development' },
+// Short labels for the compact two-column grid.
+const FEATURES: string[] = [
+  'AI Smart Formatting',
+  'Unlimited history',
+  'Priority languages',
+  'Snippets & vocabulary',
+  'Custom corrections',
+  'Support indie dev',
 ];
 
 /** Human label for a RevenueCat package type. */
@@ -222,35 +227,49 @@ export function PaywallScreen() {
   };
 
   return (
-    <Screen title="VibeFlow Pro" onBack={pop}>
-      {/* Hero */}
-      <View style={styles.hero}>
-        <View style={styles.heroIcon}>
-          <Ionicons name="sparkles" size={30} color="#fff" />
-        </View>
-        <Text style={styles.heroTitle}>Go Pro</Text>
-        <Text style={styles.heroSubtitle}>Unlock the full VibeFlow experience.</Text>
-      </View>
-
+    <Screen title="VibeFlow Pro" onBack={pop} scroll={false}>
       {premium ? (
         <ProActiveCard onDone={pop} />
       ) : (
-        <>
-          {/* Features */}
-          <SectionTitle>What you get</SectionTitle>
-          <Card>
-            {FEATURES.map((f, i) => (
-              <View key={f.text} style={[styles.featureRow, i === FEATURES.length - 1 && { paddingBottom: 0 }]}>
-                <View style={styles.check}>
-                  <Ionicons name="checkmark" size={15} color={Colors.brand} />
-                </View>
-                <Text style={[Type.body, styles.featureText]}>{f.text}</Text>
+        <View style={styles.body}>
+          {/* Hero — compact gradient banner */}
+          <LinearGradient
+            colors={[...brandGradient]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.hero}
+          >
+            <View style={styles.heroIcon}>
+              <Ionicons name="sparkles" size={24} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.heroTitle}>Go Pro</Text>
+              <Text style={styles.heroSubtitle}>Unlock the full VibeFlow experience.</Text>
+            </View>
+          </LinearGradient>
+
+          {/* Features — two columns */}
+          <Text style={styles.sectionLabel}>WHAT YOU GET</Text>
+          <View style={styles.featGrid}>
+            {FEATURES.map((f) => (
+              <View key={f} style={styles.featRow}>
+                <LinearGradient
+                  colors={['#A855F7', '#56B6FF']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.check}
+                >
+                  <Ionicons name="checkmark" size={13} color="#fff" />
+                </LinearGradient>
+                <Text style={styles.featText} numberOfLines={1}>
+                  {f}
+                </Text>
               </View>
             ))}
-          </Card>
+          </View>
 
-          {/* Plan selector */}
-          <SectionTitle>Choose your plan</SectionTitle>
+          {/* Plans — side by side */}
+          <Text style={styles.sectionLabel}>CHOOSE YOUR PLAN</Text>
           <View style={styles.plans}>
             {plans.map((plan) => (
               <PlanCard
@@ -265,36 +284,41 @@ export function PaywallScreen() {
             ))}
           </View>
 
-          {usingPlaceholders ? (
-            <View style={styles.noteRow}>
-              <Ionicons name="information-circle-outline" size={16} color={Colors.inkFaint} />
-              <Text style={styles.note}>Billing is configured in the production build.</Text>
-            </View>
-          ) : null}
-
-          {/* Actions — only promise a trial when real billing is wired (the live
-              package offers one); placeholders have no trial, so don't claim it. */}
-          <PrimaryButton
-            label={usingPlaceholders ? 'Get VibeFlow Pro' : 'Start free trial'}
-            icon="sparkles"
+          {/* CTA — gradient. Only promise a trial when real billing is wired. */}
+          <Pressable
             onPress={onSubscribe}
-            loading={busy}
-            style={{ marginTop: 18 }}
-          />
-          <GhostButton
-            label="Restore purchases"
-            icon="refresh"
-            onPress={onRestore}
             disabled={busy}
-            style={{ marginTop: 12 }}
-          />
-          <GhostButton label="Maybe later" onPress={pop} disabled={busy} style={{ marginTop: 10 }} />
+            style={({ pressed }) => [styles.ctaWrap, pressed && { opacity: 0.92 }]}
+          >
+            <LinearGradient
+              colors={['#8B5CF6', '#5FA8FF']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.cta}
+            >
+              {busy ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="sparkles" size={18} color="#fff" />
+                  <Text style={styles.ctaText}>
+                    {usingPlaceholders ? 'Get VibeFlow Pro' : 'Start free trial'}
+                  </Text>
+                </>
+              )}
+            </LinearGradient>
+          </Pressable>
+
+          <View style={styles.actionRow}>
+            <GhostButton label="Restore" icon="refresh" onPress={onRestore} disabled={busy} style={styles.flexBtn} />
+            <GhostButton label="Maybe later" onPress={pop} disabled={busy} style={styles.flexBtn} />
+          </View>
 
           <Text style={styles.legal}>
-            Subscriptions renew automatically unless cancelled at least 24 hours before the end of the
-            current period. Manage or cancel anytime in your {Platform.OS === 'ios' ? 'App Store' : 'Google Play'} settings.
+            {usingPlaceholders ? 'Billing is enabled in the production build. ' : ''}
+            Renews automatically; cancel anytime in your {Platform.OS === 'ios' ? 'App Store' : 'Google Play'} settings.
           </Text>
-        </>
+        </View>
       )}
     </Screen>
   );
@@ -311,24 +335,26 @@ function PlanCard({
   selected: boolean;
   onPress: () => void;
 }) {
+  const cadence = plan.cadence.includes('year')
+    ? '/yr'
+    : plan.cadence.includes('month')
+    ? '/mo'
+    : plan.cadence;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.planWrap, pressed && { opacity: 0.85 }]}>
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.planWrap, pressed && { opacity: 0.9 }]}>
       <View style={[styles.plan, selected && styles.planSelected]}>
-        <View style={[styles.radio, selected && styles.radioOn]}>
-          {selected ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
+        <View style={styles.planTop}>
+          <Text style={styles.planName}>{plan.title}</Text>
+          {plan.badge ? <Badge label={plan.badge} tone={plan.badge === 'BEST VALUE' ? 'brand' : 'amber'} /> : null}
         </View>
-        <View style={styles.planText}>
-          <View style={styles.planTitleRow}>
-            <Text style={Type.label}>{plan.title}</Text>
-            {plan.badge ? <Badge label={plan.badge} tone="amber" /> : null}
-          </View>
-          <Text style={[Type.bodySoft, { marginTop: 2 }]}>{plan.caption}</Text>
-        </View>
-        <View style={styles.priceCol}>
-          {plan.strikePrice ? <Text style={styles.strikePrice}>{plan.strikePrice}</Text> : null}
+        <View style={styles.priceRow}>
           <Text style={styles.price}>{plan.price}</Text>
-          {plan.cadence ? <Text style={styles.cadence}>{plan.cadence}</Text> : null}
+          {plan.cadence ? <Text style={styles.cadence}>{cadence}</Text> : null}
+          {plan.strikePrice ? <Text style={styles.strikePrice}>{plan.strikePrice}</Text> : null}
         </View>
+        <Text style={styles.planCaption} numberOfLines={1}>
+          {plan.caption}
+        </Text>
       </View>
     </Pressable>
   );
@@ -354,75 +380,77 @@ function ProActiveCard({ onDone }: { onDone: () => void }) {
 // --- styles ------------------------------------------------------------------
 
 const styles = StyleSheet.create({
+  body: { marginTop: 4 },
+
   hero: {
-    backgroundColor: Colors.brand,
-    borderRadius: Radius.card,
-    paddingVertical: 28,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  heroIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  heroTitle: { color: '#fff', fontSize: 30, fontWeight: '800', letterSpacing: -0.5, marginTop: 14 },
-  heroSubtitle: { color: 'rgba(255,255,255,0.9)', fontSize: 15, marginTop: 4, textAlign: 'center' },
-
-  featureRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
-  check: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: `${Colors.brand}29`,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  featureText: { flex: 1 },
-
-  plans: { gap: 12 },
-  planWrap: {},
-  plan: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    backgroundColor: Colors.surface,
     borderRadius: Radius.card,
-    borderWidth: 1.5,
-    borderColor: Colors.outline,
-    padding: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
   },
-  planSelected: { borderColor: Colors.brand, backgroundColor: `${Colors.brand}14` },
-  radio: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: Colors.outline,
+  heroIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  radioOn: { borderColor: Colors.brand, backgroundColor: Colors.brand },
-  planText: { flex: 1 },
-  planTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  priceCol: { alignItems: 'flex-end' },
-  price: { color: Colors.ink, fontSize: 18, fontWeight: '800' },
-  strikePrice: { color: Colors.inkFaint, fontSize: 13, textDecorationLine: 'line-through' },
-  cadence: { color: Colors.inkFaint, fontSize: 12, marginTop: 2 },
+  heroTitle: { color: '#fff', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 },
+  heroSubtitle: { color: 'rgba(255,255,255,0.92)', fontSize: 13, marginTop: 1 },
 
-  noteRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12, paddingHorizontal: 2 },
-  note: { color: Colors.inkFaint, fontSize: 12, flex: 1 },
+  sectionLabel: {
+    color: Colors.inkFaint,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    marginTop: 18,
+    marginBottom: 10,
+  },
+  featGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  featRow: { width: '50%', flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 5 },
+  check: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  featText: { color: Colors.ink, fontSize: 13.5, flex: 1 },
+
+  plans: { flexDirection: 'row', gap: 10 },
+  planWrap: { flex: 1 },
+  plan: {
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: Colors.outline,
+    backgroundColor: Colors.surface,
+    padding: 14,
+  },
+  planSelected: { borderColor: Colors.brand, backgroundColor: `${Colors.brand}14` },
+  planTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
+  planName: { color: Colors.ink, fontSize: 15, fontWeight: '700' },
+  priceRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 5, marginTop: 10 },
+  price: { color: Colors.ink, fontSize: 22, fontWeight: '800' },
+  cadence: { color: Colors.inkFaint, fontSize: 12, marginBottom: 2 },
+  strikePrice: { color: Colors.inkFaint, fontSize: 12, textDecorationLine: 'line-through', marginBottom: 2 },
+  planCaption: { color: Colors.inkSoft, fontSize: 12, marginTop: 6 },
+
+  ctaWrap: { marginTop: 18 },
+  cta: {
+    height: 54,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+  },
+  ctaText: { color: '#fff', fontSize: 17, fontWeight: '800' },
+  actionRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  flexBtn: { flex: 1 },
 
   legal: {
     color: Colors.inkFaint,
     fontSize: 11,
     lineHeight: 16,
     textAlign: 'center',
-    marginTop: 18,
+    marginTop: 14,
     paddingHorizontal: 6,
   },
 
