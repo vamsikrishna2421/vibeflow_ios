@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useState } from 'react';
 import * as Updates from 'expo-updates';
-import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CurationOptions } from '@/core';
 import { useAuth } from '@/hooks/useAuth';
@@ -130,6 +130,18 @@ export function SettingsScreen() {
   // (The Monochrome palette was removed — it could crash on iOS; the app is
   // always the colour palette now, and colors.ts clears any stale 'mono' pref.)
 
+  // Subscriptions can only be cancelled through the store, so give a one-tap
+  // shortcut that deep-links straight to the store's subscription page (right
+  // where the Cancel button is) instead of making users hunt for it.
+  const openManageSubscription = () => {
+    const url =
+      Platform.OS === 'ios'
+        ? 'https://apps.apple.com/account/subscriptions'
+        : 'https://play.google.com/store/account/subscriptions?sku=vibeflow_pro&package=com.vibeflow.mobile';
+    haptic.tap();
+    Linking.openURL(url).catch(() => {});
+  };
+
   // Patch a subset of the curation pipeline toggles in one shot.
   const setCuration = (patch: Partial<CurationOptions>) =>
     updateSettings({ curation: { ...settings.curation, ...patch } });
@@ -191,6 +203,14 @@ export function SettingsScreen() {
                 <Text style={[Type.bodySoft, { marginTop: 2 }]}>{quotaLabel(quota)}</Text>
               </View>
             </View>
+            {premium ? (
+              <NavRow
+                icon="card-outline"
+                label="Manage subscription"
+                subtitle={Platform.OS === 'ios' ? 'Change or cancel in the App Store' : 'Change or cancel in Google Play'}
+                onPress={openManageSubscription}
+              />
+            ) : null}
             <View style={styles.acctActions}>
               <Pressable disabled={authBusy} onPress={runAuth(signOut)} style={({ pressed }) => [styles.signOutBtn, pressed && { opacity: 0.6 }]}>
                 <Text style={styles.signOutText}>Sign out</Text>
