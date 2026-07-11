@@ -12,8 +12,8 @@
  */
 import { Appearance } from 'react-native';
 
-import { getItem } from '../store/appGroup';
-import { prefGet } from '../store/prefs';
+import { getItem, removeItem } from '../store/appGroup';
+import { prefGet, prefRemove } from '../store/prefs';
 
 // ---- COLOR palette (original) ----------------------------------------------
 const COLOR_DARK = {
@@ -66,9 +66,17 @@ function resolveScheme(): 'light' | 'dark' {
 }
 
 function resolvePalette(): 'color' | 'mono' {
-  const pref = resolvePref('app_palette');
-  if (pref === 'color' || pref === 'mono') return pref;
-  return 'color'; // default: the vibrant original
+  // Monochrome was REMOVED — it could crash the app on iOS. Always use the colour
+  // palette, and proactively clear any stale 'mono' preference so a device that had
+  // already selected it recovers on the next launch instead of resolving the removed
+  // palette again (which would otherwise boot-loop).
+  try {
+    if (resolvePref('app_palette') === 'mono') {
+      prefRemove('app_palette');
+      removeItem('app_palette');
+    }
+  } catch {}
+  return 'color';
 }
 
 export const themeName: 'light' | 'dark' = resolveScheme();

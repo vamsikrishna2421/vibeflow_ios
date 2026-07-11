@@ -127,19 +127,8 @@ export function SettingsScreen() {
     setTimeout(() => Updates.reloadAsync().catch(() => {}), 150);
   };
 
-  // Palette: colourful (original) vs monochrome — same instant-reload mechanism.
-  const [palettePref, setPalettePref] = useState<'color' | 'mono'>(() => {
-    const v = prefGet('app_palette') ?? getItem('app_palette');
-    return v === 'mono' ? 'mono' : 'color';
-  });
-  const applyPalette = (v: 'color' | 'mono') => {
-    if (v === palettePref) return;
-    haptic.tap();
-    setPalettePref(v);
-    prefSet('app_palette', v);
-    try { setItem('app_palette', v); } catch {}
-    setTimeout(() => Updates.reloadAsync().catch(() => {}), 150);
-  };
+  // (The Monochrome palette was removed — it could crash on iOS; the app is
+  // always the colour palette now, and colors.ts clears any stale 'mono' pref.)
 
   // Patch a subset of the curation pipeline toggles in one shot.
   const setCuration = (patch: Partial<CurationOptions>) =>
@@ -262,32 +251,6 @@ export function SettingsScreen() {
           })}
         </View>
         <Text style={styles.segHint}>Switching restarts the app for an instant re-theme.</Text>
-      </Card>
-
-      {/* Theme (colour palette) ---------------------------------------------- */}
-      <SectionTitle>Theme</SectionTitle>
-      <Card style={styles.segCard}>
-        <View style={styles.segRow}>
-          {(
-            [
-              { key: 'color', label: 'Colourful', icon: 'color-palette-outline' },
-              { key: 'mono', label: 'Monochrome', icon: 'contrast-outline' },
-            ] as const
-          ).map((opt) => {
-            const active = palettePref === opt.key;
-            return (
-              <Pressable
-                key={opt.key}
-                onPress={() => applyPalette(opt.key)}
-                style={({ pressed }) => [styles.seg, active && styles.segActive, pressed && { opacity: 0.8 }]}
-              >
-                <Ionicons name={opt.icon} size={16} color={active ? Colors.onBrand : Colors.inkSoft} />
-                <Text style={[styles.segText, active && styles.segTextActive]}>{opt.label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <Text style={styles.segHint}>Monochrome keeps only the mic button in colour.</Text>
       </Card>
 
       {/* Recognition ---------------------------------------------------------- */}
