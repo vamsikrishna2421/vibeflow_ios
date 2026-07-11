@@ -212,7 +212,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 10,
-    backgroundColor: 'rgba(124,92,255,0.15)',
+    backgroundColor: `${Colors.brand}26`,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -234,7 +234,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.outline,
   },
   meantPill: {
-    backgroundColor: 'rgba(124,92,255,0.15)',
+    backgroundColor: `${Colors.brand}26`,
     borderColor: Colors.brand,
   },
   heardText: { color: Colors.inkSoft, fontSize: 14, fontWeight: '600' },

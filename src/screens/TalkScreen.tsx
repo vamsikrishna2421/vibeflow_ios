@@ -700,18 +700,23 @@ export function TalkScreen() {
 
       {toast ? (
         <View style={[styles.toast, { bottom: insets.bottom + 16 }]}>
-          <Ionicons name="checkmark-circle" size={18} color={Colors.success} />
+          <Ionicons
+            name={/couldn|could not|cannot|can'?t|failed|used up|try again/i.test(toast) ? 'alert-circle' : 'checkmark-circle'}
+            size={18}
+            color={/couldn|could not|cannot|can'?t|failed|used up|try again/i.test(toast) ? Colors.amber : Colors.success}
+          />
           <Text style={styles.toastText} numberOfLines={2}>
             {toast}
           </Text>
         </View>
       ) : null}
 
-      {/* Code-version stamp: which OTA bundle is actually running (debug lifeline). */}
+      {/* OTA code stamp — the founder reads this to confirm which bundle shipped.
+          The flow/host details are dev-only noise, so they stay behind __DEV__. */}
       <Text style={styles.buildStamp}>
         code {Updates.updateId ? Updates.updateId.slice(-8) : 'embedded'}
-        {lastFlowStatus ? ` · flow: ${lastFlowStatus}` : ''}
-        {recordHost ? ` · from: ${recordHost}` : ''}
+        {__DEV__ && lastFlowStatus ? ` · flow: ${lastFlowStatus}` : ''}
+        {__DEV__ && recordHost ? ` · from: ${recordHost}` : ''}
       </Text>
     </View>
   );
@@ -986,7 +991,7 @@ function Waveform({ listening, level }: { listening: boolean; level: number }) {
             styles.bar,
             {
               height: bar.interpolate({ inputRange: [0, 1], outputRange: [6, 46] }),
-              backgroundColor: listening ? Colors.brand : 'rgba(124,92,255,0.45)',
+              backgroundColor: listening ? Colors.brand : `${Colors.brand}73`,
             },
           ]}
         />
@@ -1028,7 +1033,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderRadius: 999,
-    backgroundColor: 'rgba(124,92,255,0.14)',
+    backgroundColor: `${Colors.brand}24`,
     borderWidth: 1,
     borderColor: 'rgba(160,130,255,0.45)',
     shadowColor: Colors.brand,
@@ -1036,7 +1041,7 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 4 },
   },
-  sessionDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#39D98A' },
+  sessionDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: Colors.success },
   wordStat: { color: Colors.inkFaint, fontSize: 12.5, marginTop: 10 },
   sessionText: { flex: 1, color: Colors.ink, fontSize: 12.5, lineHeight: 17 },
 
@@ -1067,7 +1072,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   kWord: { color: Colors.karaokeDim, fontSize: 22, lineHeight: 32, fontWeight: '600' },
-  kWordHot: { color: Colors.ink, textShadowColor: 'rgba(124,92,255,0.8)', textShadowRadius: 12, textShadowOffset: { width: 0, height: 0 } },
+  kWordHot: { color: Colors.ink, textShadowColor: `${Colors.brand}CC`, textShadowRadius: 12, textShadowOffset: { width: 0, height: 0 } },
 
   burstWrap: { position: 'absolute', alignSelf: 'center', top: '38%', alignItems: 'center', justifyContent: 'center' },
   burstRing: { position: 'absolute', width: 90, height: 90, borderRadius: 45, borderWidth: 3, borderColor: Colors.success },
@@ -1122,7 +1127,7 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: 'rgba(124,92,255,0.2)',
+    backgroundColor: `${Colors.brand}33`,
     alignItems: 'center',
     justifyContent: 'center',
   },

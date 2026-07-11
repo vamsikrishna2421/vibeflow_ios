@@ -80,7 +80,7 @@ function StatsCard({ history }: { history: Dictation[] }) {
   const max = Math.max(1, ...stats.daily);
   return (
     <LinearGradient
-      colors={['rgba(124,92,255,0.55)', 'rgba(84,160,255,0.25)']}
+      colors={[`${Colors.brand}8C`, `${Colors.brand}40`]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={statStyles.edge}
@@ -123,7 +123,7 @@ function StatsCard({ history }: { history: Dictation[] }) {
                   statStyles.sparkBar,
                   {
                     height: 6 + (v / max) * 30,
-                    backgroundColor: i === 6 ? Colors.brand : 'rgba(124,92,255,0.35)',
+                    backgroundColor: i === 6 ? Colors.brand : `${Colors.brand}59`,
                     shadowColor: Colors.brand,
                     shadowOpacity: i === 6 ? 0.8 : 0,
                     shadowRadius: 6,
@@ -148,14 +148,14 @@ const statStyles = StyleSheet.create({
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   kicker: { color: Colors.inkFaint, fontSize: 11, fontWeight: '800', letterSpacing: 1.6 },
   streakChip: {
-    backgroundColor: 'rgba(255,159,10,0.15)',
-    borderColor: 'rgba(255,159,10,0.45)',
+    backgroundColor: `${Colors.amber}26`,
+    borderColor: `${Colors.amber}73`,
     borderWidth: 1,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
-  streakText: { color: '#FFB84D', fontSize: 12, fontWeight: '700' },
+  streakText: { color: Colors.amber, fontSize: 12, fontWeight: '700' },
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   heroValue: { color: Colors.ink, fontSize: 40, fontWeight: '800', letterSpacing: -1 },
   heroUnit: { color: Colors.inkFaint, fontSize: 12.5, lineHeight: 15 },
@@ -164,7 +164,7 @@ const statStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: Colors.chipBg,
     borderRadius: 999,
     paddingHorizontal: 11,
     paddingVertical: 6,
@@ -485,7 +485,7 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   entryPinned: {
-    borderColor: 'rgba(255,184,77,0.45)',
+    borderColor: `${Colors.amber}73`,
     shadowColor: Colors.amber,
     shadowOpacity: 0.18,
     shadowRadius: 10,
@@ -495,7 +495,7 @@ const styles = StyleSheet.create({
   reformatRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   reformatChip: {
     flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, height: 32,
-    borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 10, backgroundColor: Colors.chipBg,
     borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.outline,
   },
   reformatChipText: { color: Colors.inkSoft, fontSize: 12.5, fontWeight: '600' },
@@ -505,7 +505,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(124,92,255,0.12)',
+    backgroundColor: `${Colors.brand}1F`,
     borderRadius: 999,
     paddingHorizontal: 9,
     paddingVertical: 4,
@@ -530,7 +530,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: Colors.chipBg,
   },
 
   toast: {

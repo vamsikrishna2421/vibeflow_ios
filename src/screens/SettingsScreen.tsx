@@ -255,7 +255,7 @@ export function SettingsScreen() {
                 onPress={() => applyTheme(opt.key)}
                 style={({ pressed }) => [styles.seg, active && styles.segActive, pressed && { opacity: 0.8 }]}
               >
-                <Ionicons name={opt.icon} size={16} color={active ? '#fff' : Colors.inkSoft} />
+                <Ionicons name={opt.icon} size={16} color={active ? Colors.onBrand : Colors.inkSoft} />
                 <Text style={[styles.segText, active && styles.segTextActive]}>{opt.label}</Text>
               </Pressable>
             );
@@ -281,7 +281,7 @@ export function SettingsScreen() {
                 onPress={() => applyPalette(opt.key)}
                 style={({ pressed }) => [styles.seg, active && styles.segActive, pressed && { opacity: 0.8 }]}
               >
-                <Ionicons name={opt.icon} size={16} color={active ? '#fff' : Colors.inkSoft} />
+                <Ionicons name={opt.icon} size={16} color={active ? Colors.onBrand : Colors.inkSoft} />
                 <Text style={[styles.segText, active && styles.segTextActive]}>{opt.label}</Text>
               </Pressable>
             );
@@ -295,7 +295,7 @@ export function SettingsScreen() {
       <Card padded={false} style={styles.group}>
         <ToggleRow
           icon="shield-checkmark-outline"
-          tint="#39D98A"
+          tint={Colors.success}
           label="On-device only"
           subtitle="Your voice never leaves this phone"
           value={settings.onDeviceOnly}
@@ -387,7 +387,7 @@ export function SettingsScreen() {
       <Card padded={false} style={styles.group}>
         <ToggleRow
           icon="clipboard-outline"
-          tint="#39D98A"
+          tint={Colors.success}
           label="Auto-copy after dictation"
           value={settings.autoCopy}
           onValueChange={(v) => updateSettings({ autoCopy: v })}
@@ -472,7 +472,7 @@ export function SettingsScreen() {
           <Card padded={false} style={styles.group}>
             <NavRow
               icon="keypad-outline"
-              tint="#39D98A"
+              tint={Colors.success}
               label="Set up the keyboard"
               subtitle={
                 Platform.OS === 'ios'
@@ -570,7 +570,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: 'rgba(124,92,255,0.2)',
+    backgroundColor: `${Colors.brand}33`,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -584,7 +584,7 @@ const styles = StyleSheet.create({
   acctRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   acctIcon: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: 'rgba(124,92,255,0.15)',
+    backgroundColor: `${Colors.brand}26`,
     alignItems: 'center', justifyContent: 'center',
   },
   appleBtn: {
@@ -599,7 +599,7 @@ const styles = StyleSheet.create({
   },
   googleBtnText: { color: Colors.ink, fontSize: 15, fontWeight: '600' },
   acctActions: { gap: 4 },
-  signOutBtn: { alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 2 },
+  signOutBtn: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', paddingVertical: 6, paddingHorizontal: 2 },
   signOutText: { color: Colors.inkSoft, fontSize: 13.5, fontWeight: '600' },
   deleteText: { color: Colors.accentRed, fontSize: 13.5, fontWeight: '600' },
   segRow: { flexDirection: 'row', gap: 8 },
@@ -617,7 +617,7 @@ const styles = StyleSheet.create({
   },
   segActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
   segText: { color: Colors.inkSoft, fontSize: 13.5, fontWeight: '600' },
-  segTextActive: { color: '#fff' },
+  segTextActive: { color: Colors.onBrand },
   segHint: { color: Colors.inkFaint, fontSize: 11.5 },
 
   sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -662,7 +662,7 @@ const styles = StyleSheet.create({
   },
   langRowSelected: {
     borderColor: Colors.brand,
-    backgroundColor: 'rgba(124,92,255,0.16)',
+    backgroundColor: `${Colors.brand}29`,
   },
   langCode: { color: Colors.inkFaint, fontSize: 13, fontWeight: '600' },
 });

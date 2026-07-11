@@ -220,6 +220,8 @@ class VibeFlowKeyboardService : InputMethodService() {
       clipToOutline = true
       isClickable = true
       visibility = View.GONE
+      // The emoji glyph isn't a readable label for TalkBack — give it a real one.
+      contentDescription = "Polish text with VibeFlow"
       setOnClickListener { haptic(it); formatPending() }
     }
     strip.addView(formatButton, LinearLayout.LayoutParams(dp(44), ViewGroup.LayoutParams.MATCH_PARENT).apply { marginEnd = dp(6) })
@@ -233,6 +235,7 @@ class VibeFlowKeyboardService : InputMethodService() {
       outlineProvider = ViewOutlineProvider.BACKGROUND
       clipToOutline = true
       isClickable = true
+      contentDescription = "Start dictation" // updated to "Stop dictation" in paintMic
       setOnClickListener { haptic(it); micTapped() }
     }
     strip.addView(micButton, LinearLayout.LayoutParams(dp(56), ViewGroup.LayoutParams.MATCH_PARENT))
@@ -715,7 +718,7 @@ class VibeFlowKeyboardService : InputMethodService() {
       Log.d(TAG, "onEndOfSpeech")
       // Long utterances take the engine a few seconds to finalize — show it, so the
       // quiet gap doesn't read as "it ate my words".
-      if (micMode && sessionPartial.isNotBlank()) statusView?.text = "✍️ …"
+      if (micMode && sessionPartial.isNotBlank()) statusView?.text = "Finishing up…"
     }
 
     override fun onBeginningOfSpeech() { lastCallbackAt = System.currentTimeMillis() }
@@ -741,6 +744,7 @@ class VibeFlowKeyboardService : InputMethodService() {
   private fun paintMic() {
     micButton?.background = rounded(if (micMode) LIVE else BRAND, 16)
     micButton?.setImageResource(if (micMode) R.drawable.ic_stop else R.drawable.ic_mic)
+    micButton?.contentDescription = if (micMode) "Stop dictation" else "Start dictation"
   }
 
   // ── ✨ Format (server polish) ─────────────────────────────────────────────────
@@ -780,10 +784,12 @@ class VibeFlowKeyboardService : InputMethodService() {
     }
     statusView?.text = "✨ Formatting…"
     formatButton?.isEnabled = false
+    formatButton?.alpha = 0.5f // visible disabled state during the network call
     thread {
       val (polished, code) = callPolish(url, anon, jwt, deviceId, text)
       ui.post {
         formatButton?.isEnabled = true
+        formatButton?.alpha = 1f
         when {
           polished != null && polished.isNotBlank() -> {
             if (wholeField) replaceWholeField(fieldBefore, fieldAfter, polished)

@@ -92,7 +92,9 @@ export function Screen({
 
   if (!scroll) {
     return (
-      <View style={[styles.screen, { paddingTop: insets.top }]}>{body}</View>
+      <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        {body}
+      </View>
     );
   }
   return (
@@ -126,7 +128,14 @@ export function Card({
   );
   if (!onPress) return content;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => (pressed ? styles.pressed : undefined)}>
+    <Pressable
+      onPress={() => {
+        haptic.tap();
+        onPress();
+      }}
+      accessibilityRole="button"
+      style={({ pressed }) => (pressed ? styles.pressed : undefined)}
+    >
       {content}
     </Pressable>
   );
@@ -174,10 +183,10 @@ export function PrimaryButton({
         style={styles.primaryBtn}
       >
         {loading ? (
-          <ActivityIndicator color="#fff" />
+          <ActivityIndicator color={Colors.onBrand} />
         ) : (
           <View style={styles.btnInner}>
-            {icon ? <Ionicons name={icon} size={18} color="#fff" /> : null}
+            {icon ? <Ionicons name={icon} size={18} color={Colors.onBrand} /> : null}
             <Text style={styles.primaryBtnText}>{label}</Text>
           </View>
         )}
@@ -191,22 +200,33 @@ export function GhostButton({
   onPress,
   icon,
   tone = 'default',
+  disabled,
   style,
 }: {
   label: string;
   onPress: () => void;
   icon?: IconName;
   tone?: 'default' | 'danger';
+  disabled?: boolean;
   style?: StyleProp<ViewStyle>;
 }) {
   const color = tone === 'danger' ? Colors.accentRed : Colors.ink;
   return (
     <Pressable
       onPress={() => {
+        if (disabled) return;
         haptic.tap();
         onPress();
       }}
-      style={({ pressed }) => [styles.ghostBtn, pressed && styles.pressed, style]}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
+      style={({ pressed }) => [
+        styles.ghostBtn,
+        { opacity: disabled ? 0.5 : pressed ? 0.7 : 1 },
+        style,
+      ]}
     >
       {icon ? <Ionicons name={icon} size={18} color={color} /> : null}
       <Text style={[styles.ghostBtnText, { color }]}>{label}</Text>
@@ -353,7 +373,7 @@ export function Chip({
   selected?: boolean;
   tone?: 'default' | 'brand';
 }) {
-  const bg = selected || tone === 'brand' ? 'rgba(124,92,255,0.18)' : Colors.surfaceVariant;
+  const bg = selected || tone === 'brand' ? `${Colors.brand}2E` : Colors.surfaceVariant;
   const border = selected ? Colors.brand : Colors.outline;
   const fg = selected || tone === 'brand' ? Colors.ink : Colors.inkSoft;
   return (
@@ -382,8 +402,8 @@ export function Chip({
 
 export function Badge({ label, tone = 'brand' }: { label: string; tone?: 'brand' | 'amber' | 'muted' }) {
   const map = {
-    brand: { bg: 'rgba(124,92,255,0.18)', fg: Colors.brand },
-    amber: { bg: 'rgba(245,181,68,0.16)', fg: Colors.amber },
+    brand: { bg: `${Colors.brand}2E`, fg: Colors.brand },
+    amber: { bg: `${Colors.amber}29`, fg: Colors.amber },
     muted: { bg: Colors.surfaceVariant, fg: Colors.inkSoft },
   } as const;
   const c = map[tone];
@@ -481,7 +501,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   btnInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  primaryBtnText: { color: '#fff', fontSize: 17, fontWeight: '700' },
+  primaryBtnText: { color: Colors.onBrand, fontSize: 17, fontWeight: '700' },
 
   ghostBtn: {
     flexDirection: 'row',
@@ -528,7 +548,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: 'rgba(124,92,255,0.12)',
+    backgroundColor: `${Colors.brand}1F`,
     alignItems: 'center',
     justifyContent: 'center',
   },

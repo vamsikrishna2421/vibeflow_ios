@@ -19,14 +19,14 @@ import { prefGet } from '../store/prefs';
 const COLOR_DARK = {
   background: '#0B0A14', surface: '#120F18', surfaceVariant: '#1A1726', outline: '#2A2740',
   ink: '#FFFFFF', inkSoft: '#A7A3C2', inkFaint: '#6E6A8A',
-  brand: '#7C5CFF', accentRed: '#E54749', success: '#43E6C1', amber: '#F5B544',
+  brand: '#7C5CFF', onBrand: '#FFFFFF', accentRed: '#E54749', success: '#43E6C1', amber: '#F5B544',
   hairline: 'rgba(255,255,255,0.08)', chipBg: 'rgba(255,255,255,0.06)',
   statInner: '#151022', karaokeDim: 'rgba(255,255,255,0.55)',
 };
 const COLOR_LIGHT: typeof COLOR_DARK = {
   background: '#F5F4FA', surface: '#FFFFFF', surfaceVariant: '#EFEDF7', outline: '#DCD8E8',
   ink: '#171226', inkSoft: '#544E6B', inkFaint: '#8B85A0',
-  brand: '#6A48F5', accentRed: '#DC3B3D', success: '#0FA47F', amber: '#C98F0A',
+  brand: '#6A48F5', onBrand: '#FFFFFF', accentRed: '#DC3B3D', success: '#0FA47F', amber: '#C98F0A',
   hairline: 'rgba(23,18,38,0.08)', chipBg: 'rgba(23,18,38,0.05)',
   statInner: '#FFFFFF', karaokeDim: 'rgba(23,18,38,0.5)',
 };
@@ -35,14 +35,14 @@ const COLOR_LIGHT: typeof COLOR_DARK = {
 const MONO_DARK: typeof COLOR_DARK = {
   background: '#0A0A0C', surface: '#131316', surfaceVariant: '#1C1C21', outline: '#2C2C33',
   ink: '#FFFFFF', inkSoft: '#A6A6AE', inkFaint: '#6C6C76',
-  brand: '#ECECF1', accentRed: '#CC5F60', success: '#C4CBCF', amber: '#E3B24E',
+  brand: '#ECECF1', onBrand: '#0A0A0C', accentRed: '#CC5F60', success: '#C4CBCF', amber: '#E3B24E',
   hairline: 'rgba(255,255,255,0.08)', chipBg: 'rgba(255,255,255,0.06)',
   statInner: '#141418', karaokeDim: 'rgba(255,255,255,0.55)',
 };
 const MONO_LIGHT: typeof COLOR_DARK = {
   background: '#F4F4F6', surface: '#FFFFFF', surfaceVariant: '#ECECEF', outline: '#DADADE',
   ink: '#17171A', inkSoft: '#55555E', inkFaint: '#8A8A93',
-  brand: '#1C1C20', accentRed: '#C24B4C', success: '#5D6B65', amber: '#B98A2A',
+  brand: '#1C1C20', onBrand: '#FFFFFF', accentRed: '#C24B4C', success: '#5D6B65', amber: '#B98A2A',
   hairline: 'rgba(23,23,26,0.08)', chipBg: 'rgba(23,23,26,0.05)',
   statInner: '#FFFFFF', karaokeDim: 'rgba(23,23,26,0.5)',
 };

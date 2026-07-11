@@ -98,7 +98,7 @@ export function AboutScreen() {
             onPress={() =>
               openURL(
                 Platform.OS === 'ios'
-                  ? 'https://apps.apple.com/'
+                  ? 'https://apps.apple.com/app/id6787420544?action=write-review'
                   : 'https://play.google.com/store/apps/details?id=com.vibeflow.mobile',
               )
             }
@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 10,
-    backgroundColor: 'rgba(124,92,255,0.15)',
+    backgroundColor: `${Colors.brand}26`,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 10,
-    backgroundColor: 'rgba(124,92,255,0.15)',
+    backgroundColor: `${Colors.brand}26`,
     alignItems: 'center',
     justifyContent: 'center',
   },

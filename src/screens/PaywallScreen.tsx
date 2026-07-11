@@ -272,9 +272,10 @@ export function PaywallScreen() {
             </View>
           ) : null}
 
-          {/* Actions */}
+          {/* Actions — only promise a trial when real billing is wired (the live
+              package offers one); placeholders have no trial, so don't claim it. */}
           <PrimaryButton
-            label="Start free trial"
+            label={usingPlaceholders ? 'Get VibeFlow Pro' : 'Start free trial'}
             icon="sparkles"
             onPress={onSubscribe}
             loading={busy}
@@ -284,9 +285,10 @@ export function PaywallScreen() {
             label="Restore purchases"
             icon="refresh"
             onPress={onRestore}
+            disabled={busy}
             style={{ marginTop: 12 }}
           />
-          <GhostButton label="Maybe later" onPress={pop} style={{ marginTop: 10 }} />
+          <GhostButton label="Maybe later" onPress={pop} disabled={busy} style={{ marginTop: 10 }} />
 
           <Text style={styles.legal}>
             Subscriptions renew automatically unless cancelled at least 24 hours before the end of the
@@ -376,7 +378,7 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: 'rgba(124,92,255,0.16)',
+    backgroundColor: `${Colors.brand}29`,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -394,7 +396,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.outline,
     padding: 16,
   },
-  planSelected: { borderColor: Colors.brand, backgroundColor: 'rgba(124,92,255,0.08)' },
+  planSelected: { borderColor: Colors.brand, backgroundColor: `${Colors.brand}14` },
   radio: {
     width: 24,
     height: 24,
@@ -428,7 +430,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: 'rgba(67,230,193,0.14)',
+    backgroundColor: `${Colors.success}24`,
     alignItems: 'center',
     justifyContent: 'center',
   },

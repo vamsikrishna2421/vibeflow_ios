@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VibeFlow — Privacy Policy</title>
+<meta name="description" content="How VibeFlow handles your data: what we collect, why, who processes it, and how to delete your account." />
+<style>
+  :root{
+    --bg:#0B0A14; --surface:#120F18; --ink:#FFFFFF; --ink-soft:#A7A3C2; --ink-faint:#6E6A8A;
+    --brand:#7C5CFF; --hairline:rgba(255,255,255,0.08); --maxw:720px;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#F5F4FA; --surface:#FFFFFF; --ink:#171226; --ink-soft:#544E6B; --ink-faint:#8B85A0; --brand:#6A48F5; --hairline:rgba(23,18,38,0.09); }
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    padding:0 20px}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:56px 0 96px}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+  .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--brand),#B9A6FF);
+    display:grid;place-items:center;color:#fff;font-weight:800;font-size:18px}
+  h1{font-size:clamp(26px,5vw,34px);letter-spacing:-.02em;margin:.4em 0 .1em;text-wrap:balance}
+  .updated{color:var(--ink-faint);font-size:14px;margin-bottom:36px}
+  h2{font-size:19px;letter-spacing:-.01em;margin:38px 0 10px}
+  h3{font-size:15px;margin:22px 0 6px;color:var(--ink)}
+  p,li{color:var(--ink-soft)}
+  a{color:var(--brand);text-decoration:none}
+  a:hover{text-decoration:underline}
+  ul{padding-left:20px;margin:.4em 0}
+  li{margin:.35em 0}
+  .lead{font-size:17px;color:var(--ink)}
+  .card{background:var(--surface);border:1px solid var(--hairline);border-radius:14px;padding:18px 20px;margin:18px 0}
+  .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:14px 0}
+  table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:520px}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--hairline);vertical-align:top}
+  th{color:var(--ink);font-weight:650}
+  td{color:var(--ink-soft)}
+  strong{color:var(--ink)}
+  footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--hairline);color:var(--ink-faint);font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><div class="logo">V</div><span style="font-weight:700">VibeFlow</span></header>
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: 11 July 2026</p>
+
+  <p class="lead">VibeFlow is a voice keyboard that turns your speech into clean, formatted text. This policy explains
+  exactly what we collect, why, who helps us process it, and the choices you have — in plain language.</p>
+
+  <div class="card">
+    <strong>The short version.</strong>
+    <ul>
+      <li>We <strong>don’t sell your data</strong> and we <strong>show no ads</strong>.</li>
+      <li>We <strong>don’t store your voice recordings</strong>. Audio is turned into text on your device/OS and then discarded.</li>
+      <li>Your dictated text is sent to our AI provider <strong>only to format it</strong>, then it’s gone — we don’t keep it.</li>
+      <li>The keyboard <strong>can’t see</strong> passwords or other secure fields, and doesn’t log your keystrokes.</li>
+      <li>You can <strong>delete your account and data anytime</strong> in Settings → Delete account.</li>
+    </ul>
+  </div>
+
+  <h2>1. What we collect and why</h2>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Data</th><th>Why</th><th>Kept?</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Email address</strong></td><td>To create and secure your account and sync your settings.</td><td>Until you delete your account.</td></tr>
+      <tr><td><strong>Dictated text</strong> (what you speak, converted to text)</td><td>Sent to our AI provider to clean up grammar, punctuation and formatting, then returned to you.</td><td><strong>Not stored</strong> — processed and discarded.</td></tr>
+      <tr><td><strong>Microphone audio</strong></td><td>Converted to text by your device’s speech recognizer.</td><td><strong>Not stored by us.</strong></td></tr>
+      <tr><td><strong>Purchase information</strong></td><td>To unlock and manage your VibeFlow Pro subscription.</td><td>While you have an account.</td></tr>
+      <tr><td><strong>Device identifier</strong> (a random ID we generate)</td><td>To enforce the per-account device limit and prevent abuse. Not your hardware ID.</td><td>Anonymous usage counter may be retained for abuse prevention after deletion.</td></tr>
+      <tr><td><strong>Usage counts</strong> (e.g. number of formats)</td><td>To meter the free tier and understand overall usage.</td><td>Until you delete your account.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>We do <strong>not</strong> collect your contacts, location, photos, or browsing history, and the keyboard is disabled in
+  password and other secure text fields.</p>
+
+  <h2>2. Who processes your data (service providers)</h2>
+  <p>We use a small set of trusted providers to run VibeFlow. They process data only to provide their service to us:</p>
+  <ul>
+    <li><strong>Supabase</strong> — accounts, authentication and app settings (our backend).</li>
+    <li><strong>OpenAI</strong> — formats your dictated text; the text is processed to produce your result and is not used to train models on our behalf or retained by us.</li>
+    <li><strong>RevenueCat</strong> — manages subscriptions and purchase validation.</li>
+    <li><strong>Google Play / Apple</strong> — process payments and, on Android, the device speech recognizer converts your audio to text.</li>
+  </ul>
+  <p>We don’t sell your personal data or share it with third parties for their own advertising.</p>
+
+  <h2>3. Tracking &amp; advertising</h2>
+  <p>VibeFlow contains <strong>no advertising SDKs and no cross-app tracking</strong>. We do not use the advertising
+  identifier, and on iOS we don’t show the App Tracking Transparency prompt because we don’t track you.</p>
+
+  <h2>4. How your information is protected</h2>
+  <p>All data is <strong>encrypted in transit</strong> using industry-standard TLS between the app, our backend, and our
+  providers. Access to backend data is restricted to authorized systems.</p>
+
+  <h2>5. Your choices &amp; rights</h2>
+  <ul>
+    <li><strong>Delete your account and data</strong> — in the app, go to <strong>Settings → Delete account</strong>. This permanently removes your profile, usage history and device list. (An anonymous per-device usage counter, not linked to your identity, may be retained to prevent abuse.)</li>
+    <li><strong>Cancel your subscription</strong> — manage or cancel anytime in your Google Play or Apple subscriptions. Deleting your account does not automatically cancel a store subscription.</li>
+    <li><strong>Access or questions</strong> — contact us at the address below and we’ll help.</li>
+  </ul>
+  <p>Depending on where you live (e.g. EEA/UK under GDPR, or California under CCPA/CPRA), you may have rights to access,
+  correct, or delete your data, and to object to certain processing. You can exercise these by contacting us.</p>
+
+  <h2>6. Children</h2>
+  <p>VibeFlow is not directed to children and is intended for users aged 13 and older (or the minimum age of digital
+  consent in your country). We do not knowingly collect data from children.</p>
+
+  <h2>7. Data retention</h2>
+  <p>We keep account data for as long as your account exists. Dictated text and audio are processed transiently and not
+  retained. When you delete your account, associated personal data is removed promptly.</p>
+
+  <h2>8. Changes to this policy</h2>
+  <p>We may update this policy as VibeFlow evolves. Material changes will be reflected here with a new “Last updated” date.</p>
+
+  <h2>9. Contact</h2>
+  <p>Questions about privacy? Email <a href="mailto:vamsy.24@gmail.com">vamsy.24@gmail.com</a>.</p>
+
+  <footer>© 2026 VibeFlow. This policy describes current practices and may be updated over time.</footer>
+</div>
+</body>
+</html>

@@ -457,7 +457,7 @@ export function PersonalizedDemoScreen() {
               onPress={() => selectStyle(s.key)}
               style={({ pressed }) => [styles.tab, active && styles.tabActive, pressed && { opacity: 0.85 }]}
             >
-              <Ionicons name={s.icon} size={15} color={active ? '#fff' : Colors.inkSoft} />
+              <Ionicons name={s.icon} size={15} color={active ? Colors.onBrand : Colors.inkSoft} />
               <Text style={[styles.tabText, active && styles.tabTextActive]}>{s.label}</Text>
               {unseen ? (
                 <Animated.View
@@ -606,7 +606,7 @@ const styles = StyleSheet.create({
   },
   tabActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
   tabText: { color: Colors.inkSoft, fontSize: 13, fontWeight: '600' },
-  tabTextActive: { color: '#fff' },
+  tabTextActive: { color: Colors.onBrand },
   tabDot: { position: 'absolute', top: 5, right: 7, width: 7, height: 7, borderRadius: 4, backgroundColor: Colors.amber },
   tabHintRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, marginTop: -6, marginBottom: 14 },
   tabHint: { color: Colors.amber, fontSize: 12.5, fontWeight: '600' },
@@ -629,7 +629,7 @@ const styles = StyleSheet.create({
   signInNudge: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 14 },
   signInNudgeText: { color: Colors.ink, fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' },
 
-  appleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 52, borderRadius: 14, backgroundColor: '#fff', marginBottom: 10 },
+  appleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 52, borderRadius: 14, backgroundColor: '#fff', borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.outline, marginBottom: 10 },
   appleBtnText: { color: '#000', fontSize: 16, fontWeight: '600' },
   googleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 52, borderRadius: 14, backgroundColor: Colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.outline },
   googleBtnText: { color: Colors.ink, fontSize: 16, fontWeight: '600' },
