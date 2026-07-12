@@ -38,7 +38,6 @@ public class VibeflowFlowSessionModule: Module {
   static let statusName = "com.vibeflow.flow.status"
 
   private var engine: AVAudioEngine?
-  private var player: AVAudioPlayerNode?
   private var active = false
 
   // Per-utterance recognition riding the always-on input tap, as a chain of
@@ -68,14 +67,6 @@ public class VibeflowFlowSessionModule: Module {
   /// left behind by a force-quit/jetsam kill (which previously made the mic
   /// pretend to record into a dead process).
   private var heartbeatTimer: Timer?
-  // Silent keep-alive buffer. The silent player runs ONLY while idle (between
-  // dictations) to keep the session warm. Device logs proved that leaving it playing
-  // during recording is fatal: iOS classifies us as a background PLAYBACK app and ages
-  // out its `isPlayingProcessAssertion` at ~60s ("session … is now Terminated"),
-  // suspending us mid-dictation. So the player is stopped while recording (see
-  // stopSilentPlayer), leaving iOS to track us as a RECORDING session — which the
-  // `audio` background mode keeps alive indefinitely.
-  private var silenceBuffer: AVAudioPCMBuffer?
   /// Requests being retired: the audio tap may be mid-`append` with a raw pointer,
   /// so the last strong reference must never be dropped at the exact swap moment.
   /// Held ~1s past retirement, then released.
@@ -153,17 +144,14 @@ public class VibeflowFlowSessionModule: Module {
 
   private func startEngine() throws {
     let session = AVAudioSession.sharedInstance()
-    // NOTE: no `.mixWithOthers`. Device logs proved iOS never granted this app a
-    // *recording* assertion in ANY prior build — only the silent player's *playback*
-    // assertion, which is hard-capped at ~60s. A mixable session is treated as
-    // secondary and is denied durable background recording rights; the one config
-    // option present in every failing build was exactly `.mixWithOthers`. Dropping it
-    // makes us the primary (exclusive) recording session so iOS grants an indefinite
-    // background recording assertion — the legitimate way to record a long dictation.
-    // Only `.allowBluetooth` remains (for BT headset mics); no mixing/ducking so iOS
-    // sees us as the primary audio owner. Cost: other audio pauses during dictation.
-    try session.setCategory(.playAndRecord, mode: .default,
-                            options: [.allowBluetooth])
+    // Pure `.record` — NO playback graph at all. Device logs across four builds proved
+    // the fatal pattern: any silent-player OUTPUT node made iOS classify us as a
+    // background PLAYBACK app (`isPlayingProcessAssertion`), which it hard-caps at ~60s
+    // ("session … is now Terminated"). We never once earned a RECORDING assertion while
+    // an output graph existed. This matches Apple's canonical SFSpeechRecognizer setup:
+    // input tap only, engine started with nothing connected to output — so iOS sees a
+    // genuine recording session and keeps it alive under the `audio` background mode.
+    try session.setCategory(.record, mode: .default, options: [.allowBluetooth])
     try session.setActive(true)
 
     engine?.stop()
@@ -177,7 +165,9 @@ public class VibeflowFlowSessionModule: Module {
                     userInfo: [NSLocalizedDescriptionKey: "microphone busy"])
     }
     // The session-long tap: buffers flow into whichever segment request is live.
-    // Also probes voice activity (peak magnitude) so rotation can pick a pause.
+    // Also probes voice activity (peak magnitude) so rotation can pick a pause. This
+    // tap is the ONLY thing on the engine — no output node — so the engine runs as a
+    // recorder, not a player (that distinction is what keeps us alive past 60s).
     input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
       guard let self else { return }
       self.request?.append(buffer)
@@ -188,46 +178,10 @@ public class VibeflowFlowSessionModule: Module {
       }
     }
 
-    // Silent playback node — connected now but only PLAYED while idle (see
-    // start/stopSilentPlayer). Playing it during recording makes iOS treat us as a
-    // background playback app and kill us at ~60s; stopping it during recording lets
-    // iOS see the live mic as a recording session and keep us alive indefinitely.
-    let player = AVAudioPlayerNode()
-    engine.attach(player)
-    if let silentFormat = AVAudioFormat(standardFormatWithSampleRate: 8000, channels: 1),
-       let silence = AVAudioPCMBuffer(pcmFormat: silentFormat, frameCapacity: 8000) {
-      silence.frameLength = 8000
-      self.silenceBuffer = silence
-      engine.connect(player, to: engine.mainMixerNode, format: silentFormat)
-      engine.mainMixerNode.outputVolume = 0
-    }
     engine.prepare()
     try engine.start()
     self.engine = engine
-    self.player = player
     startHeartbeat()
-    startSilentPlayer() // idle until the first utterance starts
-  }
-
-  /// Run the silent keep-alive — ONLY valid while idle (no active utterance). Keeps the
-  /// session warm between dictations for instant restart. Never call while recording:
-  /// the resulting playback assertion is what iOS ages out at ~60s.
-  private func startSilentPlayer() {
-    guard !utteranceActive, engine?.isRunning == true,
-          let player = self.player, let silence = self.silenceBuffer,
-          !player.isPlaying else { return }
-    player.scheduleBuffer(silence, at: nil, options: .loops)
-    player.play()
-    flog("silent keep-alive → playing (idle)")
-  }
-
-  /// Stop the silent keep-alive so iOS reclassifies us from a background PLAYBACK
-  /// session (killed at ~60s) to a RECORDING session (indefinite under the audio
-  /// background mode). Called the instant an utterance begins.
-  private func stopSilentPlayer() {
-    guard let player = self.player, player.isPlaying else { return }
-    player.stop()
-    flog("silent keep-alive → stopped (recording)")
   }
 
   /// Liveness beacon (see `heartbeatTimer`): refreshed every 2s while the session
@@ -266,14 +220,12 @@ public class VibeflowFlowSessionModule: Module {
     }
     if Thread.isMainThread { deliver() } else { DispatchQueue.main.async(execute: deliver) }
     stopHeartbeat()
-    player?.stop()
     engine?.inputNode.removeTap(onBus: 0)
     engine?.stop()
-    player = nil
     engine = nil
-    // Exclusive session: release it so the user's music/podcast resumes when the flow
-    // session fully ends. (Session stays active between utterances by design — it can't
-    // be re-activated from the background, so we hold it for the whole flow session.)
+    // Exclusive recording session: release it so the user's music/podcast resumes when
+    // the flow session fully ends. (Session stays active between utterances by design —
+    // it can't be re-activated from the background, so we hold it for the whole flow.)
     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     active = false
     setFlag(false)
@@ -310,7 +262,6 @@ public class VibeflowFlowSessionModule: Module {
     utteranceGen += 1
     utteranceActive = true
     stopping = false
-    stopSilentPlayer() // present as a RECORDING session so iOS doesn't kill us at 60s
     segmentTexts = [:]
     endedSegments = []
     utteranceSeqs = []
@@ -504,7 +455,6 @@ public class VibeflowFlowSessionModule: Module {
     guard utteranceActive else { return }
     utteranceActive = false
     stopping = false
-    startSilentPlayer() // back to idle — keep the session warm (no-op if tearing down)
     // Fence off EVERY callback captured with the old gen (stragglers would
     // otherwise repopulate the cleared state / rewrite flow_partial).
     utteranceGen += 1
