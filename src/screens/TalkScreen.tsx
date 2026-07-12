@@ -12,7 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
 import * as Updates from 'expo-updates';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, AppState, Easing, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Animated, AppState, Easing, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
@@ -458,6 +458,9 @@ export function TalkScreen() {
   const applyEdit = async () => {
     const instruction = editInstruction.trim();
     if (!instruction) return;
+    // Close the keyboard first so the updated draft + result toast are visible
+    // (they sit below the input, which the keyboard otherwise covers).
+    Keyboard.dismiss();
     const ok = await runPolishStyle('instruct', instruction);
     if (ok) setEditInstruction('');
   };
@@ -502,6 +505,7 @@ export function TalkScreen() {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets
         showsVerticalScrollIndicator={false}
       >
       {totalWords > 0 ? (
