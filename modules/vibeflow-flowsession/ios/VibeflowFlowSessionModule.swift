@@ -153,8 +153,17 @@ public class VibeflowFlowSessionModule: Module {
 
   private func startEngine() throws {
     let session = AVAudioSession.sharedInstance()
+    // NOTE: no `.mixWithOthers`. Device logs proved iOS never granted this app a
+    // *recording* assertion in ANY prior build — only the silent player's *playback*
+    // assertion, which is hard-capped at ~60s. A mixable session is treated as
+    // secondary and is denied durable background recording rights; the one config
+    // option present in every failing build was exactly `.mixWithOthers`. Dropping it
+    // makes us the primary (exclusive) recording session so iOS grants an indefinite
+    // background recording assertion — the legitimate way to record a long dictation.
+    // Only `.allowBluetooth` remains (for BT headset mics); no mixing/ducking so iOS
+    // sees us as the primary audio owner. Cost: other audio pauses during dictation.
     try session.setCategory(.playAndRecord, mode: .default,
-                            options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth])
+                            options: [.allowBluetooth])
     try session.setActive(true)
 
     engine?.stop()
@@ -262,6 +271,10 @@ public class VibeflowFlowSessionModule: Module {
     engine?.stop()
     player = nil
     engine = nil
+    // Exclusive session: release it so the user's music/podcast resumes when the flow
+    // session fully ends. (Session stays active between utterances by design — it can't
+    // be re-activated from the background, so we hold it for the whole flow session.)
+    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     active = false
     setFlag(false)
   }
