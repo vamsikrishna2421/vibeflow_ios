@@ -38,6 +38,7 @@ public class VibeflowFlowSessionModule: Module {
   static let statusName = "com.vibeflow.flow.status"
 
   private var engine: AVAudioEngine?
+  private var player: AVAudioPlayerNode?
   private var active = false
 
   // Per-utterance recognition riding the always-on input tap, as a chain of
@@ -67,6 +68,17 @@ public class VibeflowFlowSessionModule: Module {
   /// left behind by a force-quit/jetsam kill (which previously made the mic
   /// pretend to record into a dead process).
   private var heartbeatTimer: Timer?
+  /// The ~52s proactive cap. iOS suspends a BACKGROUNDED audio session at ~60s — a hard
+  /// platform limit no AVAudioSession config avoids (proven: builds 1.0.24–1.0.27 all
+  /// died at ~60s regardless of category/graph; iOS only grants an uncapped RECORDING
+  /// assertion to a session started while genuinely foreground, which our momentary
+  /// bootstrap hop can't be). So instead of losing the tail when iOS pulls the plug
+  /// mid-utterance, we FINALIZE at ~52s while we still have CPU — every spoken word is
+  /// delivered — then tear the session down so the keyboard's next mic tap re-hops for a
+  /// fresh window. Net: reliable dictate-in-place up to ~52s per stretch, one tap to
+  /// continue, nothing ever lost.
+  private var sessionDeadlineTimer: Timer?
+  private let sessionMaxSeconds: TimeInterval = 52
   /// Requests being retired: the audio tap may be mid-`append` with a raw pointer,
   /// so the last strong reference must never be dropped at the exact swap moment.
   /// Held ~1s past retirement, then released.
@@ -76,10 +88,10 @@ public class VibeflowFlowSessionModule: Module {
   /// slightly stale value only shifts rotation by one 0.5s tick — acceptable.
   private var lastVoiceAt: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
 
-  // Rotation tuning: prefer a ≥0.6s pause once a segment is MIN_SEGMENT old; never
-  // let a segment reach the recognizer's ~60s per-request cap. Kept well under the cap
-  // so each finalized segment STREAMS to the keyboard as a safety-net checkpoint (~20s),
-  // guaranteeing spoken words survive even if the background session is later reclaimed.
+  // Rotation tuning: prefer a ≥0.6s pause once a segment is MIN_SEGMENT old; never let a
+  // segment reach the recognizer's ~60s per-request cap. Kept short so each finalized
+  // segment STREAMS to the keyboard as a ~20s safety-net checkpoint — within one ~52s
+  // window the user sees text appear continuously, and nothing depends on the final stop.
   private let minSegmentSeconds: TimeInterval = 18
   private let hardCapSeconds: TimeInterval = 22
   private let quietGapSeconds: TimeInterval = 0.6
@@ -144,14 +156,8 @@ public class VibeflowFlowSessionModule: Module {
 
   private func startEngine() throws {
     let session = AVAudioSession.sharedInstance()
-    // Pure `.record` — NO playback graph at all. Device logs across four builds proved
-    // the fatal pattern: any silent-player OUTPUT node made iOS classify us as a
-    // background PLAYBACK app (`isPlayingProcessAssertion`), which it hard-caps at ~60s
-    // ("session … is now Terminated"). We never once earned a RECORDING assertion while
-    // an output graph existed. This matches Apple's canonical SFSpeechRecognizer setup:
-    // input tap only, engine started with nothing connected to output — so iOS sees a
-    // genuine recording session and keeps it alive under the `audio` background mode.
-    try session.setCategory(.record, mode: .default, options: [.allowBluetooth])
+    try session.setCategory(.playAndRecord, mode: .default,
+                            options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth])
     try session.setActive(true)
 
     engine?.stop()
@@ -165,9 +171,7 @@ public class VibeflowFlowSessionModule: Module {
                     userInfo: [NSLocalizedDescriptionKey: "microphone busy"])
     }
     // The session-long tap: buffers flow into whichever segment request is live.
-    // Also probes voice activity (peak magnitude) so rotation can pick a pause. This
-    // tap is the ONLY thing on the engine — no output node — so the engine runs as a
-    // recorder, not a player (that distinction is what keeps us alive past 60s).
+    // Also probes voice activity (peak magnitude) so rotation can pick a pause.
     input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
       guard let self else { return }
       self.request?.append(buffer)
@@ -178,10 +182,54 @@ public class VibeflowFlowSessionModule: Module {
       }
     }
 
-    engine.prepare()
-    try engine.start()
+    // Silent playback loop — keeps iOS treating us as an active audio app between
+    // utterances (recording alone can be reclaimed more aggressively).
+    let player = AVAudioPlayerNode()
+    engine.attach(player)
+    if let silentFormat = AVAudioFormat(standardFormatWithSampleRate: 8000, channels: 1),
+       let silence = AVAudioPCMBuffer(pcmFormat: silentFormat, frameCapacity: 8000) {
+      silence.frameLength = 8000
+      engine.connect(player, to: engine.mainMixerNode, format: silentFormat)
+      engine.mainMixerNode.outputVolume = 0
+      engine.prepare()
+      try engine.start()
+      player.scheduleBuffer(silence, at: nil, options: .loops)
+      player.play()
+    } else {
+      engine.prepare()
+      try engine.start()
+    }
     self.engine = engine
+    self.player = player
     startHeartbeat()
+    startSessionDeadline()
+  }
+
+  /// Arm the ~52s proactive cap (see `sessionMaxSeconds`). Also publishes the deadline
+  /// to the App Group so the keyboard can surface a countdown. Runs on main.
+  private func startSessionDeadline() {
+    DispatchQueue.main.async {
+      self.sessionDeadlineTimer?.invalidate()
+      let deadlineMs = (Date().timeIntervalSince1970 + self.sessionMaxSeconds) * 1000
+      self.group?.set(String(deadlineMs), forKey: "flow_session_deadline_ts")
+      self.sessionDeadlineTimer = Timer.scheduledTimer(withTimeInterval: self.sessionMaxSeconds,
+                                                       repeats: false) { [weak self] _ in
+        self?.proactiveCap()
+      }
+    }
+  }
+
+  /// The ~52s window is up. Finalize NOW so every recognized word is delivered before
+  /// iOS suspends us at ~60s, then release the session cleanly (a few seconds later, to
+  /// let the stop finalize + deliver) so `flow_session_active` flips false and the
+  /// keyboard re-hops for a fresh window on the next mic tap.
+  private func proactiveCap() {
+    flog("~52s proactive cap — finalizing before iOS ~60s suspension")
+    if utteranceActive && !stopping { stopUtterance() }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { [weak self] in
+      guard let self, self.active else { return }
+      self.teardownSession()
+    }
   }
 
   /// Liveness beacon (see `heartbeatTimer`): refreshed every 2s while the session
@@ -220,13 +268,16 @@ public class VibeflowFlowSessionModule: Module {
     }
     if Thread.isMainThread { deliver() } else { DispatchQueue.main.async(execute: deliver) }
     stopHeartbeat()
+    DispatchQueue.main.async {
+      self.sessionDeadlineTimer?.invalidate()
+      self.sessionDeadlineTimer = nil
+      self.group?.removeObject(forKey: "flow_session_deadline_ts")
+    }
+    player?.stop()
     engine?.inputNode.removeTap(onBus: 0)
     engine?.stop()
+    player = nil
     engine = nil
-    // Exclusive recording session: release it so the user's music/podcast resumes when
-    // the flow session fully ends. (Session stays active between utterances by design —
-    // it can't be re-activated from the background, so we hold it for the whole flow.)
-    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     active = false
     setFlag(false)
   }
