@@ -385,6 +385,14 @@ public class VibeflowFlowSessionModule: Module {
     endedSegments.insert(seq)
     tasks[seq] = nil
     recognizers[seq] = nil
+    // Stream this segment's final text to the keyboard NOW (mid-utterance) so long
+    // dictations insert continuously and can never be stranded if iOS suspends the
+    // background app after "stop". Cleared so the final stop-join won't re-send it.
+    if !stopping, let segText = segmentTexts[seq], !segText.isEmpty {
+      segmentTexts[seq] = nil
+      flog("stream segment \(seq) len=\(segText.count)")
+      deliverUtterance(segText, live: true)
+    }
     if stopping {
       if endedSegments.isSuperset(of: utteranceSeqs) {
         let joined = joinedTranscript()
@@ -416,11 +424,13 @@ public class VibeflowFlowSessionModule: Module {
     rotateTimer?.invalidate()
     setStatus("processing")
     request?.endAudio()
+    flog("stopUtterance — segments=\(utteranceSeqs.count) ended=\(endedSegments.count); 2.5s watchdog armed")
     // Safety net: if the segments don't all finalise promptly, ship what we already
     // have — the utterance must NEVER hang in "processing".
     let gen = utteranceGen
     DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
       guard let self, self.utteranceActive, self.utteranceGen == gen else { return }
+      self.flog("stop watchdog fired — force-finishing")
       let joined = self.joinedTranscript()
       self.finishUtterance(with: joined.isEmpty ? nil : joined)
     }
@@ -487,29 +497,38 @@ public class VibeflowFlowSessionModule: Module {
     // delivery) gates everything; utteranceGen additionally gates the SHARED
     // status string, which belongs to the newest utterance. Self is captured
     // STRONGLY so the rescue survives module teardown (JS reload mid-dictation).
-    setStatus("processing")
+    // Deliver the final chunk — everything not already streamed mid-utterance.
+    deliverUtterance(text, live: false)
+  }
+
+  /// Hand ONE chunk of recognised text to JS (which runs the local pipeline and pings
+  /// the keyboard). `live:true` = a segment streamed WHILE still recording (status stays
+  /// "listening"); `live:false` = the final chunk on stop (status → processing). If JS
+  /// hasn't claimed the chunk within 8s, deliver the raw text so nothing is EVER lost.
+  /// Streaming (live) chunks are how long dictations survive: they insert continuously
+  /// as they're recognised, so iOS suspending the app after "stop" can't strand them.
+  private func deliverUtterance(_ text: String, live: Bool) {
+    if !live { setStatus("processing") }
     let utteranceId = String(Int(Date().timeIntervalSince1970 * 1000))
     group?.set(utteranceId, forKey: "flow_utterance_id")
     sendEvent("utteranceFinal", ["text": text, "id": utteranceId])
+    flog("deliver chunk live=\(live) id=\(utteranceId) len=\(text.count)")
     let raw = text
     let gen = utteranceGen
     DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
-      // Claim ids are ms-epoch and JS receives events in order, so a claim for
-      // this utterance OR ANY LATER one proves JS received (and owns) this one.
-      // (Equality alone broke back-to-back dictations: B's claim overwrote the
-      // shared slot and A's fallback then re-inserted A raw.)
+      // A claim for this chunk OR any later one proves JS received (and owns) it.
       let claim = Int(self.group?.string(forKey: "flow_claim_id") ?? "") ?? 0
       if claim >= (Int(utteranceId) ?? Int.max) { return } // JS alive
-      // JS never claimed → deliver raw so the dictation is not lost. Mark the
-      // utterance as fallback-delivered so a late JS pass won't double-insert.
+      // JS never claimed → deliver raw so the dictation is not lost.
       self.group?.set(raw, forKey: "latest_dictation")
       self.group?.set(String(Date().timeIntervalSince1970 * 1000), forKey: "latest_dictation_ts")
       self.group?.set(utteranceId, forKey: "flow_fallback_done")
-      if self.utteranceGen == gen,
+      if !live, self.utteranceGen == gen,
          self.group?.string(forKey: "kbd_flow_status") == "processing" {
         self.setStatus("inserted") // status is still ours — close the loop
       }
       Self.post(Self.resultName)
+      self.flog("fallback delivered raw id=\(utteranceId)")
     }
   }
 
@@ -523,7 +542,12 @@ public class VibeflowFlowSessionModule: Module {
     group?.set(status, forKey: "kbd_flow_status")
     Self.post(Self.statusName)
     sendEvent("flowStatus", ["status": status])
+    flog("status → \(status)")
   }
+
+  /// Lightweight diagnostic log — filter Console.app on "VibeFlow.flow" to trace the
+  /// flow-session lifecycle on-device (there's no local iOS simulator for this flow).
+  private func flog(_ msg: String) { NSLog("[VibeFlow.flow] %@", msg) }
 
   private static func post(_ name: String) {
     CFNotificationCenterPostNotification(
