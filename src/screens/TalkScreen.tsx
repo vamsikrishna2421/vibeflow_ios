@@ -58,9 +58,6 @@ export function TalkScreen() {
   const { signedIn } = useAuth();
   const signedInRef = useRef(signedIn);
   signedInRef.current = signedIn;
-  const smartRef = useRef(settings.smartFormat);
-  smartRef.current = settings.smartFormat;
-
   // Tell the native engine whether flow utterances should wait for an AI polish
   // (engine v2+ defers the keyboard hand-off to JS when this flag is on).
   useEffect(() => {
@@ -227,25 +224,17 @@ export function TalkScreen() {
           { ...settingsRef.current, voiceCommands: false },
           configRef.current,
         );
-        let finalText = outcome.kind === 'text' && outcome.text ? outcome.text : text;
+        const finalText = outcome.kind === 'text' && outcome.text ? outcome.text : text;
 
-        // 2. Optional AI pass — for STRUCTURE (server 'auto' style shapes the text
-        //    to its destination), not for commas.
-        if (engineDefers && smartRef.current && signedInRef.current) {
-          updateLiveActivity('Structuring…', '');
-          const r = await polish(finalText, 'auto');
-          if (r.ok && r.text) {
-            finalText = r.text;
-            updateLiveActivity(
-              r.isPro ? 'Inserted ✓' : `Inserted ✓ · ${r.remaining ?? '?'} polishes left`,
-              finalText,
-            );
-          } else {
-            updateLiveActivity('Inserted (local formatting)', finalText);
-          }
-        } else {
-          updateLiveActivity('Inserted ✓', finalText);
-        }
+        // 2. NO per-utterance network AI pass here. This runs in the BACKGROUND app
+        //    during a keyboard flow session, and iOS suspends that app the moment the
+        //    audio stops — so an `await polish()` here could strand the dictation
+        //    forever (with the native raw-text fallback already silenced by our claim
+        //    above). The user's spoken words must NEVER be lost, so we deliver the
+        //    locally-formatted transcript instantly. AI "smart formatting" is a
+        //    deliberate one-shot pass on the whole draft in the Talk screen (one prompt,
+        //    not per-utterance chunks streamed to the LLM).
+        updateLiveActivity('Inserted ✓', finalText);
 
         // 3. Deliver to the keyboard.
         if (engineDefers) {
