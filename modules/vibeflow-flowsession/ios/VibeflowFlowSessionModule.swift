@@ -96,7 +96,22 @@ public class VibeflowFlowSessionModule: Module {
   private let hardCapSeconds: TimeInterval = 22
   private let quietGapSeconds: TimeInterval = 0.6
 
+  /// Full running transcript for the keyboard's live recording panel: already-streamed
+  /// segments (`liveDelivered`) + the current un-streamed tail (`joinedTranscript`).
+  /// `flow_partial` only holds the tail (it resets each rotation), so the panel reads
+  /// this instead to show the whole dictation growing. Published throttled via CFPreferences.
+  private var liveDelivered = ""
+  private var lastLivePublish: CFAbsoluteTime = 0
+
   private var group: UserDefaults? { UserDefaults(suiteName: appGroup) }
+
+  /// Publish to the App Group via CFPreferences — the cross-process-reliable path the
+  /// keyboard reads with CFPreferencesCopyAppValue (plain UserDefaults writes from this
+  /// process aren't always visible to that read, so live text/countdown need this).
+  private func publishCF(_ value: String, forKey key: String) {
+    CFPreferencesSetAppValue(key as CFString, value as CFString, appGroup as CFString)
+    CFPreferencesAppSynchronize(appGroup as CFString)
+  }
 
   public func definition() -> ModuleDefinition {
     Name("VibeflowFlowSession")
@@ -212,6 +227,8 @@ public class VibeflowFlowSessionModule: Module {
       self.sessionDeadlineTimer?.invalidate()
       let deadlineMs = (Date().timeIntervalSince1970 + self.sessionMaxSeconds) * 1000
       self.group?.set(String(deadlineMs), forKey: "flow_session_deadline_ts")
+      self.publishCF(String(deadlineMs), forKey: "flow_session_deadline_ts")
+      self.publishCF("", forKey: "flow_live_full")  // clear last session's transcript
       self.sessionDeadlineTimer = Timer.scheduledTimer(withTimeInterval: self.sessionMaxSeconds,
                                                        repeats: false) { [weak self] _ in
         self?.proactiveCap()
@@ -272,6 +289,7 @@ public class VibeflowFlowSessionModule: Module {
       self.sessionDeadlineTimer?.invalidate()
       self.sessionDeadlineTimer = nil
       self.group?.removeObject(forKey: "flow_session_deadline_ts")
+      self.publishCF("", forKey: "flow_session_deadline_ts")
     }
     player?.stop()
     engine?.inputNode.removeTap(onBus: 0)
@@ -313,6 +331,7 @@ public class VibeflowFlowSessionModule: Module {
     utteranceGen += 1
     utteranceActive = true
     stopping = false
+    liveDelivered = ""
     segmentTexts = [:]
     endedSegments = []
     utteranceSeqs = []
@@ -378,6 +397,14 @@ public class VibeflowFlowSessionModule: Module {
         if let text {
           self.segmentTexts[seq] = text
           self.group?.set(self.joinedTranscript(), forKey: "flow_partial")
+          // Full live transcript for the keyboard panel (throttled to ~8Hz).
+          let now = CFAbsoluteTimeGetCurrent()
+          if now - self.lastLivePublish > 0.12 {
+            self.lastLivePublish = now
+            let full = (self.liveDelivered + " " + self.joinedTranscript())
+              .trimmingCharacters(in: .whitespaces)
+            self.publishCF(full, forKey: "flow_live_full")
+          }
         }
         if isFinal || failed {
           self.segmentEnded(seq, gen: gen)
@@ -436,6 +463,8 @@ public class VibeflowFlowSessionModule: Module {
     // background app after "stop". Cleared so the final stop-join won't re-send it.
     if !stopping, let segText = segmentTexts[seq], !segText.isEmpty {
       segmentTexts[seq] = nil
+      if !liveDelivered.isEmpty { liveDelivered += " " }
+      liveDelivered += segText  // keep the full transcript growing for the live panel
       flog("stream segment \(seq) len=\(segText.count)")
       deliverUtterance(segText, live: true)
     }

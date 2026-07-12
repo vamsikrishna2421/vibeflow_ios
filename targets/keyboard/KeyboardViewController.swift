@@ -45,6 +45,217 @@ final class GapForgivingStack: UIStackView {
     }
 }
 
+/// Full-screen recording panel shown over the keys while dictating. Layout matches the
+/// approved design: a live waveform fills the strip, a countdown timer sits where the mic
+/// is (tap it to stop), and the whole key area becomes the transcript streaming in.
+/// The host app publishes `flow_live_full` (growing transcript) and
+/// `flow_session_deadline_ts` (the ~52s cap) to the App Group; the keyboard feeds them in
+/// via `render(...)`. The waveform self-animates on a display link.
+final class RecordingPanelView: UIView {
+    var onStop: (() -> Void)?
+    /// Total dictation window in seconds (matches the host's `sessionMaxSeconds`).
+    private let windowSeconds: Double = 52
+
+    private let brand  = UIColor(red: 0.486, green: 0.361, blue: 1.0, alpha: 1)
+    private let amber  = UIColor(red: 1.0, green: 0.69, blue: 0.13, alpha: 1)
+    private let danger = UIColor(red: 1.0, green: 0.30, blue: 0.30, alpha: 1)
+
+    private let waveBox = UIView()
+    private var bars: [CALayer] = []
+    private let timerButton = UIButton(type: .custom)
+    private let numLabel = UILabel()
+    private let glyphLabel = UILabel()
+    private let ringTrack = CAShapeLayer()
+    private let ringProg = CAShapeLayer()
+    private let bodyBox = UIView()
+    private let tagLabel = UILabel()
+    private let textLabel = UILabel()
+
+    private var link: CADisplayLink?
+    private var isDark = true
+    private var accent: UIColor = .white
+    private var stopped = false
+
+    override init(frame: CGRect) { super.init(frame: frame); build() }
+    required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
+
+    private func build() {
+        layer.cornerRadius = 13
+        clipsToBounds = true
+        translatesAutoresizingMaskIntoConstraints = false
+
+        waveBox.translatesAutoresizingMaskIntoConstraints = false
+        waveBox.layer.cornerRadius = 12
+        addSubview(waveBox)
+
+        timerButton.translatesAutoresizingMaskIntoConstraints = false
+        timerButton.layer.cornerRadius = 16
+        timerButton.backgroundColor = danger
+        timerButton.addTarget(self, action: #selector(stopTapped), for: .touchUpInside)
+        numLabel.translatesAutoresizingMaskIntoConstraints = false
+        numLabel.font = .systemFont(ofSize: 20, weight: .heavy)
+        numLabel.textColor = .white
+        numLabel.text = "52"
+        glyphLabel.translatesAutoresizingMaskIntoConstraints = false
+        glyphLabel.font = .systemFont(ofSize: 17, weight: .bold)
+        glyphLabel.textColor = .white
+        glyphLabel.text = "▶"
+        glyphLabel.isHidden = true
+        timerButton.addSubview(numLabel)
+        timerButton.addSubview(glyphLabel)
+        for l in [ringTrack, ringProg] {
+            l.fillColor = UIColor.clear.cgColor
+            l.lineWidth = 3.5
+            l.lineCap = .round
+            layer.addSublayer(l) // added to panel layer; positioned over the button
+        }
+        ringProg.strokeColor = UIColor.white.cgColor
+        addSubview(timerButton)
+
+        bodyBox.translatesAutoresizingMaskIntoConstraints = false
+        bodyBox.layer.cornerRadius = 12
+        bodyBox.clipsToBounds = true
+        addSubview(bodyBox)
+
+        tagLabel.translatesAutoresizingMaskIntoConstraints = false
+        tagLabel.font = .systemFont(ofSize: 11, weight: .bold)
+        tagLabel.text = "DICTATING"
+        bodyBox.addSubview(tagLabel)
+
+        textLabel.translatesAutoresizingMaskIntoConstraints = false
+        textLabel.font = .systemFont(ofSize: 18, weight: .regular)
+        textLabel.numberOfLines = 0
+        bodyBox.addSubview(textLabel)
+
+        NSLayoutConstraint.activate([
+            waveBox.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            waveBox.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            waveBox.heightAnchor.constraint(equalToConstant: 46),
+            waveBox.trailingAnchor.constraint(equalTo: timerButton.leadingAnchor, constant: -8),
+
+            timerButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            timerButton.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            timerButton.widthAnchor.constraint(equalToConstant: 58),
+            timerButton.heightAnchor.constraint(equalToConstant: 46),
+            numLabel.centerXAnchor.constraint(equalTo: timerButton.centerXAnchor),
+            numLabel.centerYAnchor.constraint(equalTo: timerButton.centerYAnchor),
+            glyphLabel.centerXAnchor.constraint(equalTo: timerButton.centerXAnchor),
+            glyphLabel.centerYAnchor.constraint(equalTo: timerButton.centerYAnchor),
+
+            bodyBox.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            bodyBox.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            bodyBox.topAnchor.constraint(equalTo: waveBox.bottomAnchor, constant: 8),
+            bodyBox.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+
+            tagLabel.leadingAnchor.constraint(equalTo: bodyBox.leadingAnchor, constant: 15),
+            tagLabel.topAnchor.constraint(equalTo: bodyBox.topAnchor, constant: 12),
+            textLabel.leadingAnchor.constraint(equalTo: bodyBox.leadingAnchor, constant: 15),
+            textLabel.trailingAnchor.constraint(equalTo: bodyBox.trailingAnchor, constant: -15),
+            textLabel.bottomAnchor.constraint(equalTo: bodyBox.bottomAnchor, constant: -14),
+            textLabel.topAnchor.constraint(greaterThanOrEqualTo: tagLabel.bottomAnchor, constant: 6),
+        ])
+
+        // waveform bars
+        for _ in 0..<26 {
+            let b = CALayer()
+            b.cornerRadius = 1.5
+            b.backgroundColor = brand.cgColor
+            waveBox.layer.addSublayer(b)
+            bars.append(b)
+        }
+    }
+
+    @objc private func stopTapped() { onStop?() }
+
+    /// Apply theme + kick off the waveform; call when the panel appears.
+    func show(isDark: Bool) {
+        self.isDark = isDark
+        stopped = false
+        waveBox.backgroundColor = isDark ? UIColor(white: 1, alpha: 0.05) : UIColor(white: 0, alpha: 0.05)
+        bodyBox.backgroundColor = isDark ? UIColor(white: 1, alpha: 0.035) : UIColor(white: 0, alpha: 0.03)
+        tagLabel.textColor = isDark ? UIColor(white: 1, alpha: 0.28) : UIColor(white: 0, alpha: 0.24)
+        textLabel.textColor = isDark ? .white : .black
+        ringTrack.strokeColor = (isDark ? UIColor(white: 1, alpha: 0.2) : UIColor(white: 0, alpha: 0.14)).cgColor
+        if link == nil {
+            let dl = CADisplayLink(target: self, selector: #selector(tick))
+            dl.preferredFramesPerSecond = 30
+            dl.add(to: .main, forMode: .common)
+            link = dl
+        }
+    }
+
+    func hide() { link?.invalidate(); link = nil }
+    deinit { link?.invalidate() }
+
+    // CADisplayLink retains its target; drop it when we leave the window so the
+    // keyboard VC can deallocate cleanly (no lingering tick, no retain cycle).
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow == nil { hide() }
+    }
+
+    /// Feed the live data (called ~8Hz by the keyboard).
+    func render(remaining: Double, transcript: String) {
+        let clamped = max(0, remaining)
+        stopped = clamped <= 0.2
+        accent = clamped > 15 ? brand : (clamped > 5 ? amber : danger)
+
+        if stopped {
+            numLabel.isHidden = true; glyphLabel.isHidden = false
+            timerButton.backgroundColor = brand
+            ringProg.strokeEnd = 0
+            tagLabel.text = "SAVED · TAP ▶ TO CONTINUE"
+        } else {
+            numLabel.isHidden = false; glyphLabel.isHidden = true
+            numLabel.text = String(Int(ceil(clamped)))
+            timerButton.backgroundColor = danger
+            ringProg.strokeColor = accent.cgColor
+            ringProg.strokeEnd = CGFloat(min(1, clamped / windowSeconds))
+            tagLabel.text = clamped > 5 ? "DICTATING" : "FINISH YOUR SENTENCE"
+            tagLabel.textColor = clamped > 5 ? (isDark ? UIColor(white: 1, alpha: 0.28) : UIColor(white: 0, alpha: 0.24)) : accent
+        }
+        let shown = transcript.isEmpty && !stopped ? "Listening…" : transcript
+        textLabel.text = shown
+        textLabel.alpha = (transcript.isEmpty && !stopped) ? 0.4 : 1
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // ring hugs the rounded-rect timer button (outset a few pt); drains via strokeEnd
+        let rect = timerButton.frame.insetBy(dx: -4, dy: -4)
+        let path = UIBezierPath(roundedRect: rect, cornerRadius: 19).cgPath
+        ringTrack.path = path; ringProg.path = path
+        // waveform bars laid across waveBox
+        let n = bars.count
+        guard n > 0, waveBox.bounds.width > 0 else { return }
+        let gap: CGFloat = 3, bw: CGFloat = 3
+        let totalW = CGFloat(n) * bw + CGFloat(n - 1) * gap
+        var x = (waveBox.bounds.width - totalW) / 2
+        for b in bars {
+            b.frame = CGRect(x: x, y: waveBox.bounds.midY - 3, width: bw, height: 6)
+            x += bw + gap
+        }
+    }
+
+    private var t: CGFloat = 0
+    @objc private func tick() {
+        t += 0.6
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        let midY = waveBox.bounds.midY
+        for (i, b) in bars.enumerated() {
+            let h: CGFloat
+            if stopped { h = 4 }
+            else {
+                let s = abs(sin(Double(t) * 0.12 + Double(i) * 0.55))
+                h = CGFloat(5 + s * (7 + sin(Double(t) * 0.05 + Double(i)) * 6))
+            }
+            b.frame = CGRect(x: b.frame.minX, y: midY - h/2, width: b.frame.width, height: max(4, h))
+            b.backgroundColor = (stopped ? UIColor(white: isDark ? 1 : 0, alpha: 0.28) : accent).cgColor
+        }
+        CATransaction.commit()
+    }
+}
+
 /// The VibeFlow keyboard — a fast system-style QWERTY keyboard. The space bar reads
 /// "VibeFlow" and a brand-coloured mic key starts voice dictation.
 ///
@@ -205,6 +416,10 @@ final class KeyboardViewController: UIInputViewController {
     private var letterButtons: [KeyButton] = []   // a–z keys, re-titled on shift
     private var shiftButton: KeyButton?
     private var topMicButton: KeyButton?
+    /// The full-screen recording panel (live transcript + countdown), shown over the
+    /// keys while dictating. `panelTimer` feeds it live data from the App Group.
+    private var recordingPanel: RecordingPanelView?
+    private var panelTimer: Timer?
     private var built = false
 
     // Key-press preview balloon (the character pop-up everyone expects).
@@ -268,6 +483,7 @@ final class KeyboardViewController: UIInputViewController {
             flowMicState = .idle
         }
         applyMicAppearance()
+        updateRecordingPanel()
         updateSuggestions()
         updateShiftForContext()
     }
@@ -935,6 +1151,7 @@ final class KeyboardViewController: UIInputViewController {
             let wasIdle = flowMicState == .idle
             flowMicState = wasIdle ? .listening : .processing
             applyMicAppearance()
+            updateRecordingPanel()
             CFNotificationCenterPostNotification(
                 CFNotificationCenterGetDarwinNotifyCenter(),
                 CFNotificationName(flowToggleName as CFString),
@@ -998,6 +1215,55 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
+    // MARK: - Recording panel (live transcript + countdown over the keys)
+
+    /// Show the panel while dictating (listening/processing) and hide it when idle so the
+    /// keys return. Drives a light timer that feeds live text + countdown from the App Group.
+    private func updateRecordingPanel() {
+        if flowMicState != .idle {
+            let panel: RecordingPanelView
+            if let p = recordingPanel { panel = p } else {
+                panel = RecordingPanelView()
+                panel.onStop = { [weak self] in self?.micTapped() }
+                view.addSubview(panel)
+                NSLayoutConstraint.activate([
+                    panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                    panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                    panel.topAnchor.constraint(equalTo: view.topAnchor),
+                    panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+                ])
+                recordingPanel = panel
+            }
+            panel.backgroundColor = kbBackground
+            panel.isHidden = false
+            view.bringSubviewToFront(panel)
+            panel.show(isDark: isDark)
+            refreshPanel()
+            if panelTimer == nil {
+                panelTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
+                    self?.refreshPanel()
+                }
+            }
+        } else {
+            panelTimer?.invalidate(); panelTimer = nil
+            recordingPanel?.hide()
+            recordingPanel?.isHidden = true
+        }
+    }
+
+    /// Feed the panel one frame of live data (countdown + growing transcript). Reads both
+    /// keys under a SINGLE cross-process sync (this runs ~8×/sec while recording).
+    private func refreshPanel() {
+        guard let panel = recordingPanel, !panel.isHidden else { return }
+        CFPreferencesAppSynchronize(appGroup as CFString)
+        func cf(_ k: String) -> String? {
+            (CFPreferencesCopyAppValue(k as CFString, appGroup as CFString) as? String) ?? store?.string(forKey: k)
+        }
+        let deadline = Double(cf("flow_session_deadline_ts") ?? "") ?? 0
+        let remaining = deadline > 0 ? (deadline - Date().timeIntervalSince1970 * 1000) / 1000 : 0
+        panel.render(remaining: remaining, transcript: cf("flow_live_full") ?? "")
+    }
+
     /// Brief green confirmation when dictated text lands, then back to the LIVE
     /// state — a newer utterance may already be recording (forcing .idle here used
     /// to stomp it, and the next tap then stopped a live recording).
@@ -1014,6 +1280,7 @@ final class KeyboardViewController: UIInputViewController {
             default: self.flowMicState = .idle
             }
             self.applyMicAppearance()
+            self.updateRecordingPanel()   // hide the panel once idle; keep it while still live
         }
     }
 
@@ -1092,6 +1359,7 @@ final class KeyboardViewController: UIInputViewController {
         default:           flowMicState = .idle   // includes "error: …"
         }
         applyMicAppearance()
+        updateRecordingPanel()
         if status.hasPrefix("error"), currentWord().isEmpty {
             showIdleSuggestions()          // surface the error text in the strip
         }
