@@ -68,6 +68,11 @@ public class VibeflowFlowSessionModule: Module {
   /// left behind by a force-quit/jetsam kill (which previously made the mic
   /// pretend to record into a dead process).
   private var heartbeatTimer: Timer?
+  // Audio keep-alive: iOS reclaims a background silent-playback session at ~60s (device
+  // logs: isPlayingProcessAssertion aged out at 63s → session Terminated → app suspended
+  // mid-recording). We re-prime the player before that cutoff — see startAudioKeepAlive.
+  private var audioKeepAliveTimer: Timer?
+  private var silenceBuffer: AVAudioPCMBuffer?
   /// Requests being retired: the audio tap may be mid-`append` with a raw pointer,
   /// so the last strong reference must never be dropped at the exact swap moment.
   /// Held ~1s past retirement, then released.
@@ -78,9 +83,11 @@ public class VibeflowFlowSessionModule: Module {
   private var lastVoiceAt: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
 
   // Rotation tuning: prefer a ≥0.6s pause once a segment is MIN_SEGMENT old; never
-  // let a segment reach the recognizer's ~60s per-request cap.
-  private let minSegmentSeconds: TimeInterval = 40
-  private let hardCapSeconds: TimeInterval = 55
+  // let a segment reach the recognizer's ~60s per-request cap. Kept well under the cap
+  // so each finalized segment STREAMS to the keyboard as a safety-net checkpoint (~20s),
+  // guaranteeing spoken words survive even if the background session is later reclaimed.
+  private let minSegmentSeconds: TimeInterval = 18
+  private let hardCapSeconds: TimeInterval = 22
   private let quietGapSeconds: TimeInterval = 0.6
 
   private var group: UserDefaults? { UserDefaults(suiteName: appGroup) }
@@ -176,6 +183,7 @@ public class VibeflowFlowSessionModule: Module {
     if let silentFormat = AVAudioFormat(standardFormatWithSampleRate: 8000, channels: 1),
        let silence = AVAudioPCMBuffer(pcmFormat: silentFormat, frameCapacity: 8000) {
       silence.frameLength = 8000
+      self.silenceBuffer = silence
       engine.connect(player, to: engine.mainMixerNode, format: silentFormat)
       engine.mainMixerNode.outputVolume = 0
       engine.prepare()
@@ -189,6 +197,28 @@ public class VibeflowFlowSessionModule: Module {
     self.engine = engine
     self.player = player
     startHeartbeat()
+    startAudioKeepAlive()
+  }
+
+  /// iOS reclaims a background SILENT-playback audio session at ~60s (confirmed in device
+  /// logs). Re-prime the player every 40s — stop + reschedule + play mints a FRESH
+  /// isPlaying assertion, and re-activating the session refreshes the background grant —
+  /// so a long dictation keeps running past the 1-minute cliff instead of being suspended.
+  private func startAudioKeepAlive() {
+    DispatchQueue.main.async {
+      self.audioKeepAliveTimer?.invalidate()
+      self.audioKeepAliveTimer = Timer.scheduledTimer(withTimeInterval: 40, repeats: true) { [weak self] _ in
+        guard let self, self.active else { return }
+        try? AVAudioSession.sharedInstance().setActive(true)
+        if let engine = self.engine, !engine.isRunning { try? engine.start() }
+        if let player = self.player, let silence = self.silenceBuffer {
+          player.stop()
+          player.scheduleBuffer(silence, at: nil, options: .loops)
+          player.play()
+        }
+        self.flog("audio keep-alive re-primed")
+      }
+    }
   }
 
   /// Liveness beacon (see `heartbeatTimer`): refreshed every 2s while the session
@@ -227,6 +257,7 @@ public class VibeflowFlowSessionModule: Module {
     }
     if Thread.isMainThread { deliver() } else { DispatchQueue.main.async(execute: deliver) }
     stopHeartbeat()
+    DispatchQueue.main.async { self.audioKeepAliveTimer?.invalidate(); self.audioKeepAliveTimer = nil }
     player?.stop()
     engine?.inputNode.removeTap(onBus: 0)
     engine?.stop()
