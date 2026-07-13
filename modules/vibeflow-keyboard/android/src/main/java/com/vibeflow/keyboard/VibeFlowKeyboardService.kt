@@ -745,6 +745,12 @@ class VibeFlowKeyboardService : InputMethodService() {
     micButton?.background = rounded(if (micMode) LIVE else BRAND, 16)
     micButton?.setImageResource(if (micMode) R.drawable.ic_stop else R.drawable.ic_mic)
     micButton?.contentDescription = if (micMode) "Stop dictation" else "Start dictation"
+    // Hold the screen awake WHILE dictating so it never dims mid-speech. Without this the
+    // screen sleeps, the user taps to wake it, the tap lands in the text field and moves
+    // the cursor, and the next recognized words insert at that wrong spot — jumbling the
+    // sentence. keepScreenOn on the visible keyboard view keeps the display on with no wake
+    // lock and no permission; it clears automatically when micMode ends.
+    rootView?.keepScreenOn = micMode
   }
 
   // ── ✨ Format (server polish) ─────────────────────────────────────────────────
