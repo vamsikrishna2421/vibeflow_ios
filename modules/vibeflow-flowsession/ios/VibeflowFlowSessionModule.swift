@@ -1,6 +1,7 @@
 import AVFoundation
 import Accelerate
 import ExpoModulesCore
+import Network
 import Speech
 
 /// The **Flow Session** — the Wispr-style "one hop, then unlimited" engine.
@@ -40,6 +41,10 @@ public class VibeflowFlowSessionModule: Module {
   private var engine: AVAudioEngine?
   private var player: AVAudioPlayerNode?
   private var active = false
+  /// Connectivity, for the server→on-device fallback. Written on the monitor's queue,
+  /// read on main when a segment starts — a stale bool only mis-picks one segment's mode.
+  private let pathMonitor = NWPathMonitor()
+  private var isOnline = true
 
   // Per-utterance recognition riding the always-on input tap, as a chain of
   // segments (see header). All of this state is owned by the MAIN thread.
@@ -88,12 +93,17 @@ public class VibeflowFlowSessionModule: Module {
   /// slightly stale value only shifts rotation by one 0.5s tick — acceptable.
   private var lastVoiceAt: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
 
-  // Rotation tuning: prefer a ≥0.6s pause once a segment is MIN_SEGMENT old; never let a
-  // segment reach the recognizer's ~60s per-request cap. Kept short so each finalized
-  // segment STREAMS to the keyboard as a ~20s safety-net checkpoint — within one ~52s
-  // window the user sees text appear continuously, and nothing depends on the final stop.
-  private let minSegmentSeconds: TimeInterval = 18
-  private let hardCapSeconds: TimeInterval = 22
+  // Rotation tuning. The whole dictation is capped at ~52s (sessionMaxSeconds), which is
+  // UNDER Apple's ~60s per-request limit — so we want ONE continuous recognition request
+  // per window, never a mid-utterance rotation. Chopping into short segments restarts the
+  // recognizer and loses language-model context across the seam (visible as mis-recognized
+  // words at boundaries), so these are set above the 52s cap: the proactive cap ends the
+  // utterance before rotation can ever trigger. The 58s hard cap is only a safety valve if
+  // the proactive stop is somehow delayed, and still stays under the ~60s recognizer limit.
+  // The live panel still updates continuously (interim results), and the local text pipeline
+  // runs one-shot on the full transcript at stop — cleaner punctuation than per-chunk.
+  private let minSegmentSeconds: TimeInterval = 55
+  private let hardCapSeconds: TimeInterval = 58
   private let quietGapSeconds: TimeInterval = 0.6
 
   /// Full running transcript for the keyboard's live recording panel: already-streamed
@@ -119,10 +129,15 @@ public class VibeflowFlowSessionModule: Module {
 
     OnCreate {
       self.registerDarwinObserver()
+      self.pathMonitor.pathUpdateHandler = { [weak self] path in
+        self?.isOnline = (path.status == .satisfied)
+      }
+      self.pathMonitor.start(queue: DispatchQueue(label: "com.vibeflow.flow.net"))
     }
 
     OnDestroy {
       self.teardownSession()
+      self.pathMonitor.cancel()
       CFNotificationCenterRemoveEveryObserver(
         CFNotificationCenterGetDarwinNotifyCenter(),
         Unmanaged.passUnretained(self).toOpaque()
@@ -366,11 +381,12 @@ public class VibeflowFlowSessionModule: Module {
     let request = SFSpeechAudioBufferRecognitionRequest()
     request.shouldReportPartialResults = true
     if #available(iOS 16, *) { request.addsPunctuation = true }
-    // Honor the app's privacy setting (Settings → On-device only) whenever the
-    // locale's on-device model exists. Rotation makes on-device viable for long
-    // dictation, so the "voice never leaves the phone" promise holds here too.
-    if group?.string(forKey: "flow_on_device") != "false",
-       recognizer.supportsOnDeviceRecognition {
+    // Server (online) recognition is the DEFAULT — Apple's larger, more accurate model
+    // (the same backend Apple's own keyboard mic uses). Fall back to the on-device model
+    // ONLY when the user chose "On-device only" in Settings (flow_on_device == "true"),
+    // or when there's no network to reach Apple's servers.
+    let onDeviceRequested = group?.string(forKey: "flow_on_device") == "true"
+    if (onDeviceRequested || !isOnline), recognizer.supportsOnDeviceRecognition {
       request.requiresOnDeviceRecognition = true
     }
     // Bias recognition toward the user's vocabulary (name, job title, custom terms)

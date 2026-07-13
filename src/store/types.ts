@@ -92,7 +92,10 @@ export function defaultSettings(): AppSettings {
     routingMode: 'AUTO',
     trailingSpace: true,
     language: 'en-US',
-    onDeviceOnly: true,
+    // Cloud (Apple server) recognition by default — the larger, more accurate model,
+    // same backend as Apple's own keyboard mic. Users who want audio to never leave the
+    // phone can turn "On-device only" ON in Settings (falls back to on-device offline too).
+    onDeviceOnly: false,
     voiceCommands: true,
     smartFormat: false,
     autoCopy: false, // OFF by default: auto-copy triggers Android 13+'s intrusive
