@@ -213,11 +213,8 @@ export function SettingsScreen() {
             ) : null}
             <View style={styles.acctActions}>
               <Pressable disabled={authBusy} onPress={runAuth(signOut)} style={({ pressed }) => [styles.signOutBtn, pressed && { opacity: 0.6 }]}>
+                <Ionicons name="log-out-outline" size={17} color={Colors.inkSoft} />
                 <Text style={styles.signOutText}>Sign out</Text>
-              </Pressable>
-              <Divider />
-              <Pressable disabled={authBusy} onPress={confirmDeleteAccount} style={({ pressed }) => [styles.signOutBtn, pressed && { opacity: 0.6 }]}>
-                <Text style={styles.deleteText}>Delete account</Text>
               </Pressable>
             </View>
           </>
@@ -489,6 +486,22 @@ export function SettingsScreen() {
         />
       </Card>
 
+      {/* Delete account — permanent + destructive, so it lives at the very bottom,
+          de-emphasised, and confirmDeleteAccount() gates it behind an alert. */}
+      {signedIn ? (
+        <View style={styles.deleteZone}>
+          <Pressable
+            disabled={authBusy}
+            onPress={confirmDeleteAccount}
+            style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons name="trash-outline" size={15} color={Colors.accentRed} />
+            <Text style={styles.deleteText}>Delete account</Text>
+          </Pressable>
+          <Text style={styles.deleteNote}>Permanently erases your account and data.</Text>
+        </View>
+      ) : null}
+
       {/* Language picker bottom sheet ---------------------------------------- */}
       <Modal
         visible={langOpen}
@@ -582,9 +595,17 @@ const styles = StyleSheet.create({
   },
   googleBtnText: { color: Colors.ink, fontSize: 15, fontWeight: '600' },
   acctActions: { gap: 4 },
-  signOutBtn: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', paddingVertical: 6, paddingHorizontal: 2 },
-  signOutText: { color: Colors.inkSoft, fontSize: 13.5, fontWeight: '600' },
+  signOutBtn: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44, paddingVertical: 6, paddingHorizontal: 2 },
+  signOutText: { color: Colors.inkSoft, fontSize: 14, fontWeight: '600' },
+  // Delete account: tucked at the very bottom, de-emphasised (small, subtle red outline).
+  deleteZone: { alignItems: 'center', marginTop: 30, marginBottom: 8 },
+  deleteBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10,
+    borderWidth: 1, borderColor: 'rgba(255,90,90,0.28)', backgroundColor: 'rgba(255,90,90,0.06)',
+  },
   deleteText: { color: Colors.accentRed, fontSize: 13.5, fontWeight: '600' },
+  deleteNote: { color: Colors.inkSoft, opacity: 0.6, fontSize: 11.5, marginTop: 8, textAlign: 'center' },
   segRow: { flexDirection: 'row', gap: 8 },
   seg: {
     flex: 1,
