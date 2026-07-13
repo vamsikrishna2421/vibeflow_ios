@@ -334,21 +334,22 @@ final class KeyboardDictation {
         guard let rec = SFSpeechRecognizer(locale: Locale(identifier: locale)) ?? SFSpeechRecognizer(),
               rec.isAvailable else { onError?("recognizer unavailable"); return }
         recognizer = rec
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers, .allowBluetooth])
-            try session.setActive(true, options: [])
-            let input = engine.inputNode
-            let fmt = input.outputFormat(forBus: 0)
-            guard fmt.sampleRate > 0, fmt.channelCount > 0 else { onError?("mic busy"); teardown(); return }
-            input.installTap(onBus: 0, bufferSize: 1024, format: fmt) { [weak self] buf, _ in
-                self?.request?.append(buf)
-            }
-            engine.prepare()
-            try engine.start()
-        } catch {
-            onError?(error.localizedDescription); teardown(); return
+        // Labeled steps so the failing call is identifiable on-device. Category matches
+        // Wispr Flow's keyboard session (PlayAndRecord + DefaultToSpeaker; no duckOthers).
+        let session = AVAudioSession.sharedInstance()
+        do { try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth]) }
+        catch { onError?("setCategory: \(error.localizedDescription)"); teardown(); return }
+        do { try session.setActive(true) }
+        catch { onError?("setActive: \(error.localizedDescription)"); teardown(); return }
+        let input = engine.inputNode
+        let fmt = input.outputFormat(forBus: 0)
+        guard fmt.sampleRate > 0, fmt.channelCount > 0 else { onError?("mic-fmt 0 (\(fmt.sampleRate))"); teardown(); return }
+        input.installTap(onBus: 0, bufferSize: 1024, format: fmt) { [weak self] buf, _ in
+            self?.request?.append(buf)
         }
+        engine.prepare()
+        do { try engine.start() }
+        catch { onError?("engine.start: \(error.localizedDescription)"); teardown(); return }
         committed = ""; currentPartial = ""
         running = true; stopping = false
         onState?(true)
