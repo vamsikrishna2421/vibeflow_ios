@@ -69,7 +69,7 @@ final class RecordingPanelView: UIView {
     private let ringProg = CAShapeLayer()
     private let bodyBox = UIView()
     private let tagLabel = UILabel()
-    private let textLabel = UILabel()
+    private let textView = UITextView()   // scrollable so long dictations auto-scroll to the newest text
 
     private var link: CADisplayLink?
     private var isDark = true
@@ -122,10 +122,16 @@ final class RecordingPanelView: UIView {
         tagLabel.text = "DICTATING"
         bodyBox.addSubview(tagLabel)
 
-        textLabel.translatesAutoresizingMaskIntoConstraints = false
-        textLabel.font = .systemFont(ofSize: 18, weight: .regular)
-        textLabel.numberOfLines = 0
-        bodyBox.addSubview(textLabel)
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.font = .systemFont(ofSize: 18, weight: .regular)
+        textView.isEditable = false
+        textView.isSelectable = false
+        textView.isScrollEnabled = true
+        textView.showsVerticalScrollIndicator = true
+        textView.backgroundColor = .clear
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        bodyBox.addSubview(textView)
 
         NSLayoutConstraint.activate([
             waveBox.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
@@ -149,10 +155,10 @@ final class RecordingPanelView: UIView {
 
             tagLabel.leadingAnchor.constraint(equalTo: bodyBox.leadingAnchor, constant: 15),
             tagLabel.topAnchor.constraint(equalTo: bodyBox.topAnchor, constant: 12),
-            textLabel.leadingAnchor.constraint(equalTo: bodyBox.leadingAnchor, constant: 15),
-            textLabel.trailingAnchor.constraint(equalTo: bodyBox.trailingAnchor, constant: -15),
-            textLabel.bottomAnchor.constraint(equalTo: bodyBox.bottomAnchor, constant: -14),
-            textLabel.topAnchor.constraint(greaterThanOrEqualTo: tagLabel.bottomAnchor, constant: 6),
+            textView.leadingAnchor.constraint(equalTo: bodyBox.leadingAnchor, constant: 15),
+            textView.trailingAnchor.constraint(equalTo: bodyBox.trailingAnchor, constant: -15),
+            textView.topAnchor.constraint(equalTo: tagLabel.bottomAnchor, constant: 6),
+            textView.bottomAnchor.constraint(equalTo: bodyBox.bottomAnchor, constant: -10),
         ])
 
         // waveform bars
@@ -174,7 +180,7 @@ final class RecordingPanelView: UIView {
         waveBox.backgroundColor = isDark ? UIColor(white: 1, alpha: 0.05) : UIColor(white: 0, alpha: 0.05)
         bodyBox.backgroundColor = isDark ? UIColor(white: 1, alpha: 0.035) : UIColor(white: 0, alpha: 0.03)
         tagLabel.textColor = isDark ? UIColor(white: 1, alpha: 0.28) : UIColor(white: 0, alpha: 0.24)
-        textLabel.textColor = isDark ? .white : .black
+        textView.textColor = isDark ? .white : .black
         ringTrack.strokeColor = (isDark ? UIColor(white: 1, alpha: 0.2) : UIColor(white: 0, alpha: 0.14)).cgColor
         if link == nil {
             let dl = CADisplayLink(target: self, selector: #selector(tick))
@@ -215,8 +221,14 @@ final class RecordingPanelView: UIView {
             tagLabel.textColor = clamped > 5 ? (isDark ? UIColor(white: 1, alpha: 0.28) : UIColor(white: 0, alpha: 0.24)) : accent
         }
         let shown = transcript.isEmpty && !stopped ? "Listening…" : transcript
-        textLabel.text = shown
-        textLabel.alpha = (transcript.isEmpty && !stopped) ? 0.4 : 1
+        if textView.text != shown {
+            textView.text = shown
+            // Auto-scroll to the newest text at the bottom so long dictations stay visible.
+            textView.layoutIfNeeded()
+            let maxOffset = max(0, textView.contentSize.height - textView.bounds.height)
+            textView.setContentOffset(CGPoint(x: 0, y: maxOffset), animated: false)
+        }
+        textView.alpha = (transcript.isEmpty && !stopped) ? 0.4 : 1
     }
 
     override func layoutSubviews() {
