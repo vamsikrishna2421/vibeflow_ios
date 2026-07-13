@@ -6,6 +6,13 @@
 	<string>VibeFlow</string>
 	<key>CFBundleName</key>
 	<string>VibeFlowKeyboard</string>
+	<!-- The keyboard extension records the mic + recognizes speech IN-PROCESS (no hop),
+	     so it needs its own usage strings or iOS crashes on mic access. Permission itself
+	     is granted app-wide and shared with the extension. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>VibeFlow uses the microphone to turn your speech into text right in the keyboard.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>VibeFlow uses speech recognition to transcribe your dictation into text.</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>
