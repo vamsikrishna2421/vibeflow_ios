@@ -83,7 +83,9 @@ public class VibeflowFlowSessionModule: Module {
   /// fresh window. Net: reliable dictate-in-place up to ~52s per stretch, one tap to
   /// continue, nothing ever lost.
   private var sessionDeadlineTimer: Timer?
-  private let sessionMaxSeconds: TimeInterval = 52
+  // EXPERIMENT: proactive cap effectively OFF (1 hour) so we can watch whether iOS itself
+  // sustains a foreground-started recording past 60s. Restore to 52 if the experiment fails.
+  private let sessionMaxSeconds: TimeInterval = 3600
   /// Requests being retired: the audio tap may be mid-`append` with a raw pointer,
   /// so the last strong reference must never be dropped at the exact swap moment.
   /// Held ~1s past retirement, then released.
@@ -157,7 +159,11 @@ public class VibeflowFlowSessionModule: Module {
         // Engine capability marker: v2 = defers the keyboard hand-off to JS when
         // the flow_polish flag is set (so dictations can be AI-polished pre-insert).
         self.group?.set("2", forKey: "flow_engine_v")
-        self.setStatus("ready")
+        // EXPERIMENT: begin recording NOW, while FOREGROUND (this runs during the bootstrap
+        // hop). If iOS grants a real recording assertion here, it should survive backgrounding
+        // past 60s — the whole hypothesis. Recording then runs continuously (rotation chains
+        // requests under the recognizer's ~60s limit); the user just speaks in the host app.
+        self.startUtterance()
         return true
       } catch {
         self.teardownSession()
@@ -186,8 +192,11 @@ public class VibeflowFlowSessionModule: Module {
 
   private func startEngine() throws {
     let session = AVAudioSession.sharedInstance()
-    try session.setCategory(.playAndRecord, mode: .default,
-                            options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth])
+    // EXPERIMENT (recording-assertion): pure `.record`, NO silent player anywhere. We want
+    // iOS to see a genuine RECORDER, not a playback app. Paired with starting the recording
+    // while the app is FOREGROUND (see `start()` → startUtterance), this tests whether iOS
+    // grants the indefinite background *recording* assertion that survives past 60s.
+    try session.setCategory(.record, mode: .default, options: [.allowBluetooth])
     try session.setActive(true)
 
     engine?.stop()
@@ -212,25 +221,10 @@ public class VibeflowFlowSessionModule: Module {
       }
     }
 
-    // Silent playback loop — keeps iOS treating us as an active audio app between
-    // utterances (recording alone can be reclaimed more aggressively).
-    let player = AVAudioPlayerNode()
-    engine.attach(player)
-    if let silentFormat = AVAudioFormat(standardFormatWithSampleRate: 8000, channels: 1),
-       let silence = AVAudioPCMBuffer(pcmFormat: silentFormat, frameCapacity: 8000) {
-      silence.frameLength = 8000
-      engine.connect(player, to: engine.mainMixerNode, format: silentFormat)
-      engine.mainMixerNode.outputVolume = 0
-      engine.prepare()
-      try engine.start()
-      player.scheduleBuffer(silence, at: nil, options: .loops)
-      player.play()
-    } else {
-      engine.prepare()
-      try engine.start()
-    }
+    // EXPERIMENT: no silent player — just the input tap (a real recorder).
+    engine.prepare()
+    try engine.start()
     self.engine = engine
-    self.player = player
     startHeartbeat()
     startSessionDeadline()
   }
