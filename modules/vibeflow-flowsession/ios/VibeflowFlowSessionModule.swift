@@ -40,6 +40,9 @@ public class VibeflowFlowSessionModule: Module {
 
   private var engine: AVAudioEngine?
   private var player: AVAudioPlayerNode?
+  /// EXPERIMENT (H1): a real file-writing recorder, to test whether the recording API is
+  /// the discriminator for the uncapped background recording assertion.
+  private var recorder: AVAudioRecorder?
   private var active = false
   /// Connectivity, for the server→on-device fallback. Written on the monitor's queue,
   /// read on main when a segment starts — a stale bool only mis-picks one segment's mode.
@@ -185,54 +188,33 @@ public class VibeflowFlowSessionModule: Module {
   // MARK: - Engine (session-long input stream + silent playback keep-alive)
 
   private func startEngine() throws {
+    // EXPERIMENT (H1 / recording-API discriminator): use a REAL AVAudioRecorder writing to
+    // an .m4a file — what actual recorder apps use — instead of our AVAudioEngine tap →
+    // SFSpeechRecognizer. This isolates whether iOS grants the uncapped background *recording*
+    // assertion to a genuine file-sink recording. Pure .record, NO silent player, NO 52s cap.
+    // Watch idevicesyslog for `isRecordingProcessAssertion` (always 0 with our tap to date)
+    // and whether the app survives past ~65s after backgrounding.
     let session = AVAudioSession.sharedInstance()
-    try session.setCategory(.playAndRecord, mode: .default,
-                            options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth])
+    try session.setCategory(.record, mode: .default, options: [.allowBluetooth])
     try session.setActive(true)
 
-    engine?.stop()
-    engine = nil
+    engine?.stop(); engine = nil
 
-    let engine = AVAudioEngine()
-    let input = engine.inputNode
-    let format = input.outputFormat(forBus: 0)
-    guard format.sampleRate > 0, format.channelCount > 0 else {
-      throw NSError(domain: "VibeflowFlowSession", code: 2,
-                    userInfo: [NSLocalizedDescriptionKey: "microphone busy"])
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("vibeflow_probe.m4a")
+    let settings: [String: Any] = [
+      AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+      AVSampleRateKey: 44_100,
+      AVNumberOfChannelsKey: 1,
+      AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
+    ]
+    let rec = try AVAudioRecorder(url: url, settings: settings)
+    guard rec.record() else {
+      throw NSError(domain: "VibeflowFlowSession", code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "recorder failed to start"])
     }
-    // The session-long tap: buffers flow into whichever segment request is live.
-    // Also probes voice activity (peak magnitude) so rotation can pick a pause.
-    input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-      guard let self else { return }
-      self.request?.append(buffer)
-      if let data = buffer.floatChannelData?.pointee {
-        var peak: Float = 0
-        vDSP_maxmgv(data, 1, &peak, vDSP_Length(buffer.frameLength))
-        if peak > 0.02 { self.lastVoiceAt = CFAbsoluteTimeGetCurrent() }
-      }
-    }
-
-    // Silent playback loop — keeps iOS treating us as an active audio app between
-    // utterances (recording alone can be reclaimed more aggressively).
-    let player = AVAudioPlayerNode()
-    engine.attach(player)
-    if let silentFormat = AVAudioFormat(standardFormatWithSampleRate: 8000, channels: 1),
-       let silence = AVAudioPCMBuffer(pcmFormat: silentFormat, frameCapacity: 8000) {
-      silence.frameLength = 8000
-      engine.connect(player, to: engine.mainMixerNode, format: silentFormat)
-      engine.mainMixerNode.outputVolume = 0
-      engine.prepare()
-      try engine.start()
-      player.scheduleBuffer(silence, at: nil, options: .loops)
-      player.play()
-    } else {
-      engine.prepare()
-      try engine.start()
-    }
-    self.engine = engine
-    self.player = player
+    self.recorder = rec
     startHeartbeat()
-    startSessionDeadline()
+    // EXPERIMENT: proactive cap intentionally NOT armed — observe iOS's raw behavior past 60s.
   }
 
   /// Arm the ~52s proactive cap (see `sessionMaxSeconds`). Also publishes the deadline
@@ -306,11 +288,14 @@ public class VibeflowFlowSessionModule: Module {
       self.group?.removeObject(forKey: "flow_session_deadline_ts")
       self.publishCF("", forKey: "flow_session_deadline_ts")
     }
+    recorder?.stop()          // EXPERIMENT: stop the file recorder
+    recorder = nil
     player?.stop()
     engine?.inputNode.removeTap(onBus: 0)
     engine?.stop()
     player = nil
     engine = nil
+    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     active = false
     setFlag(false)
   }
