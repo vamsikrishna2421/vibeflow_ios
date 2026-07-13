@@ -22,7 +22,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.vibeflow.dictation",
-      "buildNumber": "1.0.32",
+      "buildNumber": "1.0.33",
       "appleTeamId": "33348G2388",
       "entitlements": {
         "com.apple.security.application-groups": [
