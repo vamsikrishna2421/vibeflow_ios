@@ -1336,9 +1336,10 @@ final class KeyboardViewController: UIInputViewController {
             dictation.stop()
             return
         }
-        guard KeyboardDictation.permissionsGranted() else {
-            // First run / permission not yet granted: open the app once to grant mic + speech,
-            // then the user comes back and dictates in place.
+        if !KeyboardDictation.permissionsGranted() {
+            // Not granted for the extension yet — surface it and open the app to grant.
+            store?.set("error: needs mic/speech access — opening VibeFlow", forKey: "kbd_flow_status")
+            showIdleSuggestions()
             armed = true
             armedSnapshot = latest()
             openApp()
@@ -1346,6 +1347,10 @@ final class KeyboardViewController: UIInputViewController {
         }
         let locale = store?.string(forKey: "kbd_language") ?? "en-US"
         let onDevice = groupString("flow_on_device") == "true"
+        // Diagnostic breadcrumb: if this shows and then nothing follows, start() reached but
+        // neither succeeded (panel) nor errored (strip error) — i.e. it hung.
+        store?.set("error: starting recorder…", forKey: "kbd_flow_status")
+        showIdleSuggestions()
         dictation.start(locale: locale, onDevice: onDevice)
     }
 
@@ -1362,12 +1367,11 @@ final class KeyboardViewController: UIInputViewController {
         flowMicState = .idle
         applyMicAppearance()
         updateRecordingPanel()
-        if err == "permission" {
-            // Not granted yet → open the app once so the user can allow mic + speech.
-            armed = true; armedSnapshot = latest(); openApp()
-        } else {
-            showIdleSuggestions()   // surface the idle hint / any status in the strip
-        }
+        // Surface the EXACT failure in the strip so it's diagnosable on-device (idevicesyslog
+        // can't see the extension's own logs). e.g. "permission", "mic busy", or an
+        // AVAudioSession error string from setActive/engine.start.
+        store?.set("error: \(err)", forKey: "kbd_flow_status")
+        showIdleSuggestions()
     }
 
     /// Mic key mirrors the real flow state: pulsing red while listening, orange
