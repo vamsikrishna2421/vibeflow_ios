@@ -39,16 +39,16 @@ public class VibeflowFlowSessionModule: Module {
   static let statusName = "com.vibeflow.flow.status"
 
   private var engine: AVAudioEngine?
-  /// Real playback keep-alive (see `startKeepAlive`). A genuine `AVAudioPlayer` looping a
-  /// near-silent file registers a SYSTEM playback session (via mediaplaybackd) — which,
-  /// together with the app's `audio` UIBackgroundMode, keeps iOS treating us as an
-  /// actively-playing background-audio app and exempts the whole `.playAndRecord` session
-  /// from the ~60s background termination. This is exactly how Wispr Flow's container app
-  /// records for minutes: device logs show sibling mediaplaybackd playback sessions
-  /// renewing past 60s with no kill. The previous keep-alive was an AVAudioPlayerNode
-  /// INSIDE the recording engine at volume 0 — one node in the same session, never a
-  /// separate playback assertion, so iOS still capped us at ~60s.
-  private var keepAlivePlayer: AVAudioPlayer?
+  /// Playback keep-alive. Device logs pinned the exact mechanism: Wispr's container app holds
+  /// a `mediaplaybackd` PLAYBACK session that flips its audio session to `Playing:YES` while
+  /// recording — THAT (with the `audio` UIBackgroundMode) is what keeps the backgrounded app
+  /// alive past 60s. Our earlier `AVAudioPlayer` rendered in-process and never reached
+  /// `Playing:YES` (our session logged `Playing:NO`, zero mediaplaybackd sessions), so iOS
+  /// suspended us mid-dictation — freezing the transcript AND killing delivery. So we use
+  /// `AVPlayer` (which runs through mediaplaybackd) looping a genuinely non-zero, inaudible
+  /// tone — real signal so it registers as playing, matching Wispr.
+  private var keepAlivePlayer: AVQueuePlayer?
+  private var keepAliveLooper: AVPlayerLooper?
   private var active = false
   /// Live mic amplitude (0…~1), updated by the input tap (peak-hold). Published to the App
   /// Group as `flow_level` — piggybacked on the ~8Hz `flow_live_full` flush (NOT a separate
@@ -238,43 +238,51 @@ public class VibeflowFlowSessionModule: Module {
     startHeartbeat()
   }
 
-  /// Loop a near-silent audio file through a genuine `AVAudioPlayer` so iOS registers a
-  /// system playback session (mediaplaybackd) for us — the piece that (with the `audio`
-  /// UIBackgroundMode) exempts the backgrounded `.playAndRecord` session from the ~60s cap.
-  /// A plain AVAudioPlayerNode inside the recording engine does NOT do this.
+  /// Loop an inaudible tone through `AVPlayer` (which runs through mediaplaybackd) so iOS
+  /// sees a real background PLAYBACK session and flips us to `Playing:YES` — the thing that
+  /// (with the `audio` UIBackgroundMode) keeps the backgrounded app alive while recording.
+  /// Built on the main run loop so `AVPlayerLooper`'s KVO-driven gapless looping works.
   private func startKeepAlive() {
     guard let url = Self.silentLoopURL() else {
-      flog("keep-alive: could not build silent loop file — session may cap at ~60s")
+      flog("keep-alive: could not build loop file — session may get suspended")
       return
     }
-    do {
-      let p = try AVAudioPlayer(contentsOf: url)
-      p.numberOfLoops = -1        // loop forever, for the whole session
-      p.volume = 0.01             // inaudible but non-zero (a fully muted player can read as idle)
-      p.prepareToPlay()
-      p.play()
-      keepAlivePlayer = p
-      flog("keep-alive: playback started")
-    } catch {
-      flog("keep-alive: AVAudioPlayer failed (\(error.localizedDescription)) — session may cap at ~60s")
+    DispatchQueue.main.async {
+      let queue = AVQueuePlayer()
+      queue.volume = 0.06                    // inaudible at this content amplitude, but non-zero
+      let looper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: url))
+      queue.play()
+      self.keepAlivePlayer = queue
+      self.keepAliveLooper = looper
+      self.flog("keep-alive: AVPlayer(mediaplaybackd) started")
     }
   }
 
   private func stopKeepAlive() {
-    keepAlivePlayer?.stop()
-    keepAlivePlayer = nil
+    DispatchQueue.main.async {
+      self.keepAliveLooper?.disableLooping()
+      self.keepAlivePlayer?.pause()
+      self.keepAlivePlayer?.removeAllItems()
+      self.keepAliveLooper = nil
+      self.keepAlivePlayer = nil
+    }
   }
 
-  /// Build (once, then cache) a short near-silent .caf in the temp dir to loop as the
-  /// keep-alive. Generated at runtime so there's no audio asset to bundle in the build.
+  /// Build (once, then cache) a 1s inaudible-but-NON-ZERO tone in the temp dir to loop via
+  /// AVPlayer. Non-zero is load-bearing: mediaplaybackd reports `Playing:YES` only for a
+  /// stream carrying real signal, and Playing:YES is what keeps us alive — pure silence
+  /// logged as `Playing:NO`. (New filename so devices don't reuse the old all-silent cache.)
   private static func silentLoopURL() -> URL? {
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent("vf_keepalive.caf")
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("vf_keepalive_v2.caf")
     if FileManager.default.fileExists(atPath: url.path) { return url }
     guard let fmt = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1),
           let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 44100) else { return nil }
-    buf.frameLength = 44100  // 1.0s of silence, looped forever
+    buf.frameLength = 44100  // 1.0s, looped forever
     if let ch = buf.floatChannelData?.pointee {
-      for i in 0..<Int(buf.frameLength) { ch[i] = 0 }
+      let n = Int(buf.frameLength)
+      for i in 0..<n {
+        ch[i] = 0.02 * sinf(2.0 * .pi * 110.0 * Float(i) / 44100.0)  // ~110Hz, ~-34dBFS content
+      }
     }
     do {
       let file = try AVAudioFile(forWriting: url, settings: fmt.settings)
