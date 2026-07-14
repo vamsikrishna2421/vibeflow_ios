@@ -50,6 +50,11 @@ public class VibeflowFlowSessionModule: Module {
   /// separate playback assertion, so iOS still capped us at ~60s.
   private var keepAlivePlayer: AVAudioPlayer?
   private var active = false
+  /// Live mic amplitude (0…~1), updated by the input tap (peak-hold). The level-meter timer
+  /// publishes it to the App Group as `flow_level` so the keyboard's waveform reflects REAL
+  /// speech instead of a canned animation, then decays it so a pause quiets the bars.
+  private var micLevel: Float = 0
+  private var levelTimer: Timer?
   /// Connectivity, for the server→on-device fallback. Written on the monitor's queue,
   /// read on main when a segment starts — a stale bool only mis-picks one segment's mode.
   private let pathMonitor = NWPathMonitor()
@@ -155,6 +160,9 @@ public class VibeflowFlowSessionModule: Module {
       if self.active { return true }
       do {
         try self.startEngine()
+        self.clearLiveTranscript()  // fresh session — clear the last one's transcript here,
+                                    // NOT in startEngine (reassert after an interruption
+                                    // re-runs startEngine and must not wipe a live dictation)
         self.active = true
         self.setFlag(true)
         // Engine capability marker: v2 = defers the keyboard hand-off to JS when
@@ -216,6 +224,7 @@ public class VibeflowFlowSessionModule: Module {
         var peak: Float = 0
         vDSP_maxmgv(data, 1, &peak, vDSP_Length(buffer.frameLength))
         if peak > 0.02 { self.lastVoiceAt = CFAbsoluteTimeGetCurrent() }
+        self.micLevel = max(peak, self.micLevel)  // peak-hold; the level meter decays + publishes it
       }
     }
     engine.prepare()
@@ -227,7 +236,30 @@ public class VibeflowFlowSessionModule: Module {
     startKeepAlive()
 
     startHeartbeat()
-    clearLiveTranscript()
+    startLevelMeter()
+  }
+
+  /// Publish the live mic level to the App Group (~14Hz) so the keyboard's recording-panel
+  /// waveform moves with actual speech and quiets on a pause — not a canned animation.
+  private func startLevelMeter() {
+    DispatchQueue.main.async {
+      self.levelTimer?.invalidate()
+      self.levelTimer = Timer.scheduledTimer(withTimeInterval: 0.07, repeats: true) { [weak self] _ in
+        guard let self else { return }
+        let scaled = min(1.0, Double(self.micLevel) * 6)      // amplitude → 0…1 for the bars
+        self.publishCF(String(format: "%.3f", scaled), forKey: "flow_level")
+        self.micLevel *= 0.55                                 // decay (the tap peak-holds between ticks)
+      }
+    }
+  }
+
+  private func stopLevelMeter() {
+    DispatchQueue.main.async {
+      self.levelTimer?.invalidate()
+      self.levelTimer = nil
+      self.micLevel = 0
+      self.publishCF("0", forKey: "flow_level")
+    }
   }
 
   /// Loop a near-silent audio file through a genuine `AVAudioPlayer` so iOS registers a
@@ -324,6 +356,7 @@ public class VibeflowFlowSessionModule: Module {
     }
     if Thread.isMainThread { deliver() } else { DispatchQueue.main.async(execute: deliver) }
     stopHeartbeat()
+    stopLevelMeter()
     DispatchQueue.main.async {
       self.group?.removeObject(forKey: "flow_session_deadline_ts")
       self.publishCF("", forKey: "flow_session_deadline_ts")
@@ -638,21 +671,40 @@ public class VibeflowFlowSessionModule: Module {
     flog("deliver chunk live=\(live) id=\(utteranceId) len=\(text.count)")
     let raw = text
     let gen = utteranceGen
-    DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
-      // A claim for this chunk OR any later one proves JS received (and owns) it.
-      let claim = Int(self.group?.string(forKey: "flow_claim_id") ?? "") ?? 0
-      if claim >= (Int(utteranceId) ?? Int.max) { return } // JS alive
-      // JS never claimed → deliver raw so the dictation is not lost.
+    // Backstop: if JS hasn't actually DELIVERED this chunk to the keyboard shortly, do it
+    // natively so a spoken word is NEVER lost. We check REAL delivery (latest_dictation_ts
+    // advancing to at/after this utterance) rather than a mere claim — the app is
+    // backgrounded during a keyboard flow session, so JS can set its claim id and then be
+    // suspended before it writes, which used to strand the whole dictation. And we write via
+    // CFPreferences (publishCF): a plain UserDefaults write from this backgrounded process
+    // is not reliably visible to the keyboard's CFPreferences read (the same reason the live
+    // panel uses publishCF) — writing latest_dictation only over UserDefaults is exactly why
+    // words showed in the panel but never reached the text field.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+      let deliveredTs = Double(self.cfRead("latest_dictation_ts") ?? "") ?? 0
+      if deliveredTs >= (Double(utteranceId) ?? .greatestFiniteMagnitude) { return } // JS delivered
+      let ts = String(Int(Date().timeIntervalSince1970 * 1000))
       self.group?.set(raw, forKey: "latest_dictation")
-      self.group?.set(String(Date().timeIntervalSince1970 * 1000), forKey: "latest_dictation_ts")
+      self.group?.set(ts, forKey: "latest_dictation_ts")
       self.group?.set(utteranceId, forKey: "flow_fallback_done")
+      self.publishCF(raw, forKey: "latest_dictation")
+      self.publishCF(ts, forKey: "latest_dictation_ts")
+      self.publishCF(utteranceId, forKey: "flow_fallback_done")
       if !live, self.utteranceGen == gen,
-         self.group?.string(forKey: "kbd_flow_status") == "processing" {
+         self.cfRead("kbd_flow_status") == "processing" {
         self.setStatus("inserted") // status is still ours — close the loop
       }
       Self.post(Self.resultName)
-      self.flog("fallback delivered raw id=\(utteranceId)")
+      self.flog("native delivered id=\(utteranceId) len=\(raw.count)")
     }
+  }
+
+  /// Cross-process-consistent read (mirror of `publishCF`): forces a sync so we see the
+  /// current value even when it was written from another process, or by JS via CFPreferences.
+  private func cfRead(_ key: String) -> String? {
+    CFPreferencesAppSynchronize(appGroup as CFString)
+    return (CFPreferencesCopyAppValue(key as CFString, appGroup as CFString) as? String)
+      ?? group?.string(forKey: key)
   }
 
   // MARK: - Plumbing

@@ -14,9 +14,17 @@ public class VibeflowAppGroupModule: Module {
   public func definition() -> ModuleDefinition {
     Name("VibeflowAppGroup")
 
-    // Store a string (JSON or plain) under a key in the shared suite.
+    // Store a string (JSON or plain) under a key in the shared suite. Write BOTH channels:
+    // UserDefaults for same-process readers, and CFPreferences so the keyboard extension
+    // (a DIFFERENT process) reliably sees the value via CFPreferencesCopyAppValue. A plain
+    // UserDefaults(suiteName:) write from this process is not always visible to that
+    // cross-process read — which stranded dictations (they showed in the live panel, which
+    // uses CFPreferences, but latest_dictation went only through UserDefaults and never
+    // reached the text field).
     Function("setItem") { (key: String, value: String) -> Void in
       self.store?.set(value, forKey: key)
+      CFPreferencesSetAppValue(key as CFString, value as CFString, self.appGroup as CFString)
+      CFPreferencesAppSynchronize(self.appGroup as CFString)
     }
 
     // Read a string back. Uses CFPreferences with a forced sync so we always get
@@ -32,6 +40,8 @@ public class VibeflowAppGroupModule: Module {
 
     Function("removeItem") { (key: String) -> Void in
       self.store?.removeObject(forKey: key)
+      CFPreferencesSetAppValue(key as CFString, nil, self.appGroup as CFString)
+      CFPreferencesAppSynchronize(self.appGroup as CFString)
     }
   }
 }

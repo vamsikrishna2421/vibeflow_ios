@@ -73,6 +73,8 @@ final class RecordingPanelView: UIView {
     private var isDark = true
     private var accent: UIColor = .white
     private var stopped = false
+    private var level: CGFloat = 0        // eased waveform amplitude (0…1)
+    private var targetLevel: CGFloat = 0  // latest real mic level from the app
 
     override init(frame: CGRect) { super.init(frame: frame); build() }
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
@@ -202,9 +204,10 @@ final class RecordingPanelView: UIView {
     /// there's no countdown: the button is a solid red STOP (tap to end) and the tag reads
     /// DICTATING while live. The panel is only on-screen while actually recording, so it
     /// always renders the live state; the growing transcript auto-scrolls to the newest text.
-    func render(transcript: String) {
+    func render(transcript: String, level: CGFloat) {
         stopped = false
         accent = brand
+        targetLevel = max(0, min(1, level))
         numLabel.isHidden = true
         glyphLabel.isHidden = false
         glyphLabel.text = "■"                 // tap to stop
@@ -246,14 +249,16 @@ final class RecordingPanelView: UIView {
     private var t: CGFloat = 0
     @objc private func tick() {
         t += 0.6
+        level += (targetLevel - level) * 0.25   // ease toward the latest real mic level
         CATransaction.begin(); CATransaction.setDisableActions(true)
         let midY = waveBox.bounds.midY
         for (i, b) in bars.enumerated() {
             let h: CGFloat
             if stopped { h = 4 }
             else {
-                let s = abs(sin(Double(t) * 0.12 + Double(i) * 0.55))
-                h = CGFloat(5 + s * (7 + sin(Double(t) * 0.05 + Double(i)) * 6))
+                // Amplitude tracks REAL speech: near-flat when quiet, tall when loud.
+                let s = abs(sin(Double(t) * 0.30 + Double(i) * 0.5))
+                h = 4 + CGFloat(s) * (level * 18)
             }
             b.frame = CGRect(x: b.frame.minX, y: midY - h/2, width: b.frame.width, height: max(4, h))
             b.backgroundColor = (stopped ? UIColor(white: isDark ? 1 : 0, alpha: 0.28) : accent).cgColor
@@ -1154,7 +1159,12 @@ final class KeyboardViewController: UIInputViewController {
     private func micTapped() {
         // Flow Session alive (Dynamic Island showing)? Record right here — no hop.
         if flowSessionAlive {
-            let wasIdle = flowMicState == .idle
+            // Decide start-vs-stop from the app's REAL status, not the local mic state
+            // (which can drift out of sync — a stale .idle used to make a STOP tap look like
+            // a start, arm the failsafe below, and wrongly redirect to the app).
+            let status = groupString("kbd_flow_status") ?? ""
+            let recording = (status == "listening" || status == "processing")
+            let wasIdle = !recording
             flowMicState = wasIdle ? .listening : .processing
             applyMicAppearance()
             updateRecordingPanel()
@@ -1163,8 +1173,10 @@ final class KeyboardViewController: UIInputViewController {
                 CFNotificationName(flowToggleName as CFString),
                 nil, nil, true
             )
-            // Failsafe: the island can outlive a force-quit app (zombie pill). If the
-            // app doesn't ack a record-start quickly, it's dead — hop to restart it.
+            // Failsafe ONLY when STARTING: the island can outlive a force-quit app (zombie
+            // pill). If the app doesn't begin listening quickly it's dead — hop to restart.
+            // Never armed on a stop (a stop drives status to "processing", not "listening",
+            // which is exactly what used to trip this into a spurious redirect).
             if wasIdle {
                 toggleAckTimer?.invalidate()
                 toggleAckTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
@@ -1262,9 +1274,11 @@ final class KeyboardViewController: UIInputViewController {
     private func refreshPanel() {
         guard let panel = recordingPanel, !panel.isHidden else { return }
         CFPreferencesAppSynchronize(appGroup as CFString)
-        let full = (CFPreferencesCopyAppValue("flow_live_full" as CFString, appGroup as CFString) as? String)
-            ?? store?.string(forKey: "flow_live_full")
-        panel.render(transcript: full ?? "")
+        func cf(_ k: String) -> String? {
+            (CFPreferencesCopyAppValue(k as CFString, appGroup as CFString) as? String) ?? store?.string(forKey: k)
+        }
+        let level = CGFloat(Double(cf("flow_level") ?? "0") ?? 0)
+        panel.render(transcript: cf("flow_live_full") ?? "", level: level)
     }
 
     /// Brief green confirmation when dictated text lands, then back to the LIVE
