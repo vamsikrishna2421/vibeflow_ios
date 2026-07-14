@@ -77,7 +77,7 @@ export function AboutScreen() {
             icon="shield-checkmark-outline"
             label="Privacy policy"
             subtitle="How we handle your data"
-            onPress={() => openURL('https://vibeflow.app/privacy')}
+            onPress={() => openURL('https://vamsikrishna2421.github.io/vibeflow-web/privacy.html')}
           />
         </View>
         <RowDivider />
@@ -85,8 +85,8 @@ export function AboutScreen() {
           <NavRow
             icon="mail-outline"
             label="Contact support"
-            subtitle="support@vibeflow.app"
-            onPress={() => openURL('mailto:support@vibeflow.app')}
+            subtitle="vamsy.24@gmail.com"
+            onPress={() => openURL('mailto:vamsy.24@gmail.com')}
           />
         </View>
         <RowDivider />

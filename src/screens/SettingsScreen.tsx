@@ -12,6 +12,7 @@ import React, { useEffect, useState } from 'react';
 import * as Updates from 'expo-updates';
 import { Alert, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { PRO_ENABLED } from '@/config/features';
 import { CurationOptions } from '@/core';
 import { useAuth } from '@/hooks/useAuth';
 import { deleteAccount, signInWithApple, signInWithGoogle, signOut } from '@/services/auth';
@@ -165,7 +166,7 @@ export function SettingsScreen() {
   return (
     <Screen title="Settings" subtitle="Tune how VibeFlow listens and writes.">
       {/* Pro upsell — only when the user hasn't unlocked it yet. */}
-      {!premium ? (
+      {PRO_ENABLED && !premium ? (
         <Pressable onPress={() => push('paywall')} style={({ pressed }) => [pressed && { opacity: 0.9 }]}>
           <LinearGradient
             colors={['#F7D774', '#D4A017', '#FFE9A8']}

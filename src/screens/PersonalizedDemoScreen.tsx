@@ -20,6 +20,7 @@ import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { PRO_ENABLED } from '@/config/features';
 import { useAuth } from '@/hooks/useAuth';
 import { useDictation } from '@/hooks/useDictation';
 import { useNav } from '@/navigation/nav';
@@ -261,7 +262,7 @@ export function PersonalizedDemoScreen() {
 
   function finish(toPaywall: boolean) {
     prime();
-    if (toPaywall) push('paywall');
+    if (toPaywall && PRO_ENABLED) push('paywall');
     completeDemo();
   }
 
@@ -519,8 +520,14 @@ export function PersonalizedDemoScreen() {
       ) : null}
 
       <View style={{ height: 22 }} />
-      <PrimaryButton label="Unlock VibeFlow Pro" icon="sparkles" onPress={() => finish(true)} />
-      <GhostButton label="Continue to the app" onPress={() => finish(false)} style={{ marginTop: 6 }} />
+      {PRO_ENABLED ? (
+        <>
+          <PrimaryButton label="Unlock VibeFlow Pro" icon="sparkles" onPress={() => finish(true)} />
+          <GhostButton label="Continue to the app" onPress={() => finish(false)} style={{ marginTop: 6 }} />
+        </>
+      ) : (
+        <PrimaryButton label="Continue to the app" icon="arrow-forward" onPress={() => finish(false)} />
+      )}
     </Screen>
   );
 }
