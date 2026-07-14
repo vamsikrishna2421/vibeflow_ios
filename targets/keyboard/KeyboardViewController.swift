@@ -47,8 +47,9 @@ final class GapForgivingStack: UIStackView {
 
 /// Full-screen recording panel shown over the keys while dictating. A live waveform fills
 /// the strip, a red STOP button sits where the mic is (tap it to end), and the whole key
-/// area becomes the transcript streaming in. Dictation is UNLIMITED, so there's no
-/// countdown. The host app publishes `flow_live_full` (the growing transcript) to the App
+/// area becomes the transcript streaming in. The free tier caps each stretch at ~45s
+/// (`windowSeconds`), shown as a countdown ring; unlimited dictation is the separate paid
+/// cloud tier. The host app publishes `flow_live_full` (the growing transcript) to the App
 /// Group; the keyboard feeds it in via `render(transcript:)`. The waveform self-animates on
 /// a display link.
 final class RecordingPanelView: UIView {
@@ -97,7 +98,7 @@ final class RecordingPanelView: UIView {
         numLabel.translatesAutoresizingMaskIntoConstraints = false
         numLabel.font = .systemFont(ofSize: 20, weight: .heavy)
         numLabel.textColor = .white
-        numLabel.text = "52"
+        numLabel.text = "45"   // initial value; render() overwrites with the live countdown (matches windowSeconds)
         glyphLabel.translatesAutoresizingMaskIntoConstraints = false
         glyphLabel.font = .systemFont(ofSize: 17, weight: .bold)
         glyphLabel.textColor = .white
