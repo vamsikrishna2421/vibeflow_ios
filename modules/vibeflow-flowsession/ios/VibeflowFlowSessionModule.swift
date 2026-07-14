@@ -435,8 +435,16 @@ public class VibeflowFlowSessionModule: Module {
     // (the same backend Apple's own keyboard mic uses). Fall back to the on-device model
     // ONLY when the user chose "On-device only" in Settings (flow_on_device == "true"),
     // or when there's no network to reach Apple's servers.
-    let onDeviceRequested = group?.string(forKey: "flow_on_device") == "true"
-    if (onDeviceRequested || !isOnline), recognizer.supportsOnDeviceRecognition {
+    // On-device recognition runs Apple's model LOCALLY and is far too CPU-heavy to sustain in
+    // the BACKGROUND: device logs show iOS killed us at ~62s with a "cpulimit violation" while
+    // localspeechrecognition ran the whole time. Long background dictation on iOS REQUIRES
+    // server (cloud) recognition — what Wispr uses — which offloads the model to Apple's
+    // servers and keeps our local CPU under the background budget. So the flow session uses
+    // cloud whenever there's network, and only falls back to on-device when genuinely OFFLINE
+    // (a fallback that is itself CPU-limited and can't run long). The user's "on-device only"
+    // Settings choice still governs the in-app/foreground recognizer, but not background
+    // keyboard dictation, where on-device physically can't sustain.
+    if !isOnline, recognizer.supportsOnDeviceRecognition {
       request.requiresOnDeviceRecognition = true
     }
     // Bias recognition toward the user's vocabulary (name, job title, custom terms)
