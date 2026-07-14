@@ -50,11 +50,11 @@ public class VibeflowFlowSessionModule: Module {
   /// separate playback assertion, so iOS still capped us at ~60s.
   private var keepAlivePlayer: AVAudioPlayer?
   private var active = false
-  /// Live mic amplitude (0…~1), updated by the input tap (peak-hold). The level-meter timer
-  /// publishes it to the App Group as `flow_level` so the keyboard's waveform reflects REAL
-  /// speech instead of a canned animation, then decays it so a pause quiets the bars.
+  /// Live mic amplitude (0…~1), updated by the input tap (peak-hold). Published to the App
+  /// Group as `flow_level` — piggybacked on the ~8Hz `flow_live_full` flush (NOT a separate
+  /// high-frequency forced-sync timer, which jetsammed the backgrounded app in 1.0.39) — so
+  /// the keyboard's waveform reflects REAL speech and quiets on a pause.
   private var micLevel: Float = 0
-  private var levelTimer: Timer?
   /// Connectivity, for the server→on-device fallback. Written on the monitor's queue,
   /// read on main when a segment starts — a stale bool only mis-picks one segment's mode.
   private let pathMonitor = NWPathMonitor()
@@ -224,7 +224,7 @@ public class VibeflowFlowSessionModule: Module {
         var peak: Float = 0
         vDSP_maxmgv(data, 1, &peak, vDSP_Length(buffer.frameLength))
         if peak > 0.02 { self.lastVoiceAt = CFAbsoluteTimeGetCurrent() }
-        self.micLevel = max(peak, self.micLevel)  // peak-hold; the level meter decays + publishes it
+        self.micLevel = max(peak, self.micLevel)  // peak-hold; the ~8Hz publish reads + decays it
       }
     }
     engine.prepare()
@@ -236,30 +236,6 @@ public class VibeflowFlowSessionModule: Module {
     startKeepAlive()
 
     startHeartbeat()
-    startLevelMeter()
-  }
-
-  /// Publish the live mic level to the App Group (~14Hz) so the keyboard's recording-panel
-  /// waveform moves with actual speech and quiets on a pause — not a canned animation.
-  private func startLevelMeter() {
-    DispatchQueue.main.async {
-      self.levelTimer?.invalidate()
-      self.levelTimer = Timer.scheduledTimer(withTimeInterval: 0.07, repeats: true) { [weak self] _ in
-        guard let self else { return }
-        let scaled = min(1.0, Double(self.micLevel) * 6)      // amplitude → 0…1 for the bars
-        self.publishCF(String(format: "%.3f", scaled), forKey: "flow_level")
-        self.micLevel *= 0.55                                 // decay (the tap peak-holds between ticks)
-      }
-    }
-  }
-
-  private func stopLevelMeter() {
-    DispatchQueue.main.async {
-      self.levelTimer?.invalidate()
-      self.levelTimer = nil
-      self.micLevel = 0
-      self.publishCF("0", forKey: "flow_level")
-    }
   }
 
   /// Loop a near-silent audio file through a genuine `AVAudioPlayer` so iOS registers a
@@ -356,10 +332,11 @@ public class VibeflowFlowSessionModule: Module {
     }
     if Thread.isMainThread { deliver() } else { DispatchQueue.main.async(execute: deliver) }
     stopHeartbeat()
-    stopLevelMeter()
+    micLevel = 0
     DispatchQueue.main.async {
       self.group?.removeObject(forKey: "flow_session_deadline_ts")
       self.publishCF("", forKey: "flow_session_deadline_ts")
+      self.publishCF("0", forKey: "flow_level")  // one-shot sync on teardown is fine
     }
     stopKeepAlive()
     engine?.inputNode.removeTap(onBus: 0)
@@ -484,7 +461,16 @@ public class VibeflowFlowSessionModule: Module {
             self.lastLivePublish = now
             let full = (self.liveDelivered + " " + self.joinedTranscript())
               .trimmingCharacters(in: .whitespaces)
-            self.publishCF(full, forKey: "flow_live_full")
+            // Piggyback the REAL mic level onto this same ~8Hz flush — Set (no extra
+            // CFPreferencesAppSynchronize) then let publishCF's sync flush both. A separate
+            // ~14Hz forced-sync level timer is what got the backgrounded app jetsammed in
+            // 1.0.39. Voice-gated so a pause reads as calm.
+            let voiced = CFAbsoluteTimeGetCurrent() - self.lastVoiceAt < 0.35
+            let lvl = voiced ? min(1.0, Double(self.micLevel) * 6) : 0
+            self.micLevel *= 0.5
+            CFPreferencesSetAppValue("flow_level" as CFString,
+                                     String(format: "%.3f", lvl) as CFString, self.appGroup as CFString)
+            self.publishCF(full, forKey: "flow_live_full")  // this sync flushes flow_level too
           }
         }
         if isFinal || failed {

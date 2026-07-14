@@ -10,6 +10,15 @@ import ExpoModulesCore
 public class VibeflowAppGroupModule: Module {
   private let appGroup = "group.com.vibeflow.dictation"
   private var store: UserDefaults? { UserDefaults(suiteName: appGroup) }
+  /// Only these small, time-critical keys are flushed to CFPreferences on write (the keyboard
+  /// reads them LIVE cross-process during a flow session). Everything else stays
+  /// UserDefaults-only: forcing a whole-domain CFPreferences sync on every bulk write
+  /// (history_json, bigrams) from the backgrounded app is exactly the kind of sustained
+  /// disk-IO load that helped jetsam it — and the keyboard reads those keys lazily anyway.
+  private static let urgentKeys: Set<String> = [
+    "latest_dictation", "latest_dictation_ts", "kbd_flow_status",
+    "flow_claim_id", "flow_fallback_done", "flow_utterance_id",
+  ]
 
   public func definition() -> ModuleDefinition {
     Name("VibeflowAppGroup")
@@ -23,8 +32,12 @@ public class VibeflowAppGroupModule: Module {
     // reached the text field).
     Function("setItem") { (key: String, value: String) -> Void in
       self.store?.set(value, forKey: key)
-      CFPreferencesSetAppValue(key as CFString, value as CFString, self.appGroup as CFString)
-      CFPreferencesAppSynchronize(self.appGroup as CFString)
+      // Only the small live-delivery keys pay for a CFPreferences flush (cross-process
+      // visibility to the keyboard). Bulk keys stay UserDefaults-only — see urgentKeys.
+      if Self.urgentKeys.contains(key) {
+        CFPreferencesSetAppValue(key as CFString, value as CFString, self.appGroup as CFString)
+        CFPreferencesAppSynchronize(self.appGroup as CFString)
+      }
     }
 
     // Read a string back. Uses CFPreferences with a forced sync so we always get
