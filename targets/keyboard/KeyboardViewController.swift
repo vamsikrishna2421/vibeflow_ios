@@ -53,6 +53,8 @@ final class GapForgivingStack: UIStackView {
 /// a display link.
 final class RecordingPanelView: UIView {
     var onStop: (() -> Void)?
+    /// Total dictation window in seconds (matches the host's `sessionMaxSeconds`), for the ring.
+    private let windowSeconds: Double = 45
 
     private let brand  = UIColor(red: 0.486, green: 0.361, blue: 1.0, alpha: 1)
     private let amber  = UIColor(red: 1.0, green: 0.69, blue: 0.13, alpha: 1)
@@ -200,24 +202,33 @@ final class RecordingPanelView: UIView {
         if newWindow == nil { hide() }
     }
 
-    /// Feed the live data (called ~8Hz by the keyboard). Dictation is UNLIMITED now, so
-    /// there's no countdown: the button is a solid red STOP (tap to end) and the tag reads
-    /// DICTATING while live. The panel is only on-screen while actually recording, so it
-    /// always renders the live state; the growing transcript auto-scrolls to the newest text.
-    func render(transcript: String, level: CGFloat) {
-        stopped = false
-        accent = brand
+    /// Feed the live data (called ~8Hz by the keyboard). `remaining` is the ~45s countdown
+    /// (the keyboard tier caps each stretch before iOS's background CPU limit); at ≤0 the panel
+    /// flips to the "SAVED · TAP ▶ TO CONTINUE" rest state. `level` drives the real waveform.
+    func render(remaining: Double, transcript: String, level: CGFloat) {
         targetLevel = max(0, min(1, level))
-        numLabel.isHidden = true
-        glyphLabel.isHidden = false
-        glyphLabel.text = "■"                 // tap to stop
-        timerButton.backgroundColor = danger  // red = tap to stop
-        ringProg.strokeColor = brand.cgColor
-        ringProg.strokeEnd = 1                // full ring, no drain (no countdown)
-        tagLabel.text = "DICTATING"
-        tagLabel.textColor = isDark ? UIColor(white: 1, alpha: 0.28) : UIColor(white: 0, alpha: 0.24)
+        let clamped = max(0, remaining)
+        stopped = clamped <= 0.2
+        accent = clamped > 15 ? brand : (clamped > 5 ? amber : danger)
 
-        let shown = transcript.isEmpty ? "Listening…" : transcript
+        if stopped {
+            numLabel.isHidden = true; glyphLabel.isHidden = false
+            glyphLabel.text = "▶"
+            timerButton.backgroundColor = brand
+            ringProg.strokeEnd = 0
+            tagLabel.text = "SAVED · TAP ▶ TO CONTINUE"
+            tagLabel.textColor = isDark ? UIColor(white: 1, alpha: 0.28) : UIColor(white: 0, alpha: 0.24)
+        } else {
+            numLabel.isHidden = false; glyphLabel.isHidden = true
+            numLabel.text = String(Int(ceil(clamped)))
+            timerButton.backgroundColor = danger
+            ringProg.strokeColor = accent.cgColor
+            ringProg.strokeEnd = CGFloat(min(1, clamped / windowSeconds))
+            tagLabel.text = clamped > 5 ? "DICTATING" : "FINISH YOUR SENTENCE"
+            tagLabel.textColor = clamped > 5 ? (isDark ? UIColor(white: 1, alpha: 0.28) : UIColor(white: 0, alpha: 0.24)) : accent
+        }
+
+        let shown = transcript.isEmpty && !stopped ? "Listening…" : transcript
         if textView.text != shown {
             textView.text = shown
             // Auto-scroll to the newest text at the bottom so long dictations stay visible.
@@ -225,7 +236,7 @@ final class RecordingPanelView: UIView {
             let maxOffset = max(0, textView.contentSize.height - textView.bounds.height)
             textView.setContentOffset(CGPoint(x: 0, y: maxOffset), animated: false)
         }
-        textView.alpha = transcript.isEmpty ? 0.4 : 1
+        textView.alpha = (transcript.isEmpty && !stopped) ? 0.4 : 1
     }
 
     override func layoutSubviews() {
@@ -1277,8 +1288,10 @@ final class KeyboardViewController: UIInputViewController {
         func cf(_ k: String) -> String? {
             (CFPreferencesCopyAppValue(k as CFString, appGroup as CFString) as? String) ?? store?.string(forKey: k)
         }
+        let deadline = Double(cf("flow_session_deadline_ts") ?? "") ?? 0
+        let remaining = deadline > 0 ? (deadline - Date().timeIntervalSince1970 * 1000) / 1000 : 0
         let level = CGFloat(Double(cf("flow_level") ?? "0") ?? 0)
-        panel.render(transcript: cf("flow_live_full") ?? "", level: level)
+        panel.render(remaining: remaining, transcript: cf("flow_live_full") ?? "", level: level)
     }
 
     /// Brief green confirmation when dictated text lands, then back to the LIVE

@@ -87,6 +87,12 @@ public class VibeflowFlowSessionModule: Module {
   /// left behind by a force-quit/jetsam kill (which previously made the mic
   /// pretend to record into a dead process).
   private var heartbeatTimer: Timer?
+  /// The keyboard tier caps each stretch at ~45s: on-device recognition (which iOS forces for
+  /// English) is too CPU-heavy to survive iOS's ~60s background cpulimit, so we finalize every
+  /// word BEFORE the kill, then the keyboard's next tap re-hops for a fresh window. Unlimited
+  /// dictation is the separate cloud-ASR Pro tier.
+  private var sessionDeadlineTimer: Timer?
+  private let sessionMaxSeconds: TimeInterval = 45
   // No session-level time cap any more: the real playback keep-alive (see keepAlivePlayer)
   // keeps the backgrounded session alive indefinitely, so dictation runs until the user
   // stops. The only remaining ~60s limit is Apple's PER-REQUEST recognizer cap, handled by
@@ -160,9 +166,9 @@ public class VibeflowFlowSessionModule: Module {
       if self.active { return true }
       do {
         try self.startEngine()
-        self.clearLiveTranscript()  // fresh session — clear the last one's transcript here,
-                                    // NOT in startEngine (reassert after an interruption
-                                    // re-runs startEngine and must not wipe a live dictation)
+        self.startSessionDeadline()  // fresh session — arm the ~45s cap + publish the countdown
+                                     // deadline here, NOT in startEngine (reassert re-runs
+                                     // startEngine and must not re-arm the clock or wipe text)
         self.active = true
         self.setFlag(true)
         // Engine capability marker: v2 = defers the keyboard hand-off to JS when
@@ -296,11 +302,32 @@ public class VibeflowFlowSessionModule: Module {
   /// Clear the last session's live transcript and any stale countdown deadline. Dictation
   /// is unlimited now, so there's no proactive cap and no countdown for the keyboard to
   /// show. Runs on main.
-  private func clearLiveTranscript() {
+  /// Arm the ~45s proactive cap and publish the deadline so the keyboard shows the countdown.
+  /// Also clears the last session's transcript. Called once at session start (not in
+  /// startEngine — a reassert re-runs startEngine and must not re-arm the clock).
+  private func startSessionDeadline() {
     DispatchQueue.main.async {
-      self.publishCF("", forKey: "flow_live_full")
-      self.group?.removeObject(forKey: "flow_session_deadline_ts")
-      self.publishCF("", forKey: "flow_session_deadline_ts")
+      self.sessionDeadlineTimer?.invalidate()
+      let deadlineMs = (Date().timeIntervalSince1970 + self.sessionMaxSeconds) * 1000
+      self.group?.set(String(deadlineMs), forKey: "flow_session_deadline_ts")
+      self.publishCF(String(deadlineMs), forKey: "flow_session_deadline_ts")
+      self.publishCF("", forKey: "flow_live_full")  // clear last session's transcript
+      self.sessionDeadlineTimer = Timer.scheduledTimer(withTimeInterval: self.sessionMaxSeconds,
+                                                       repeats: false) { [weak self] _ in
+        self?.proactiveCap()
+      }
+    }
+  }
+
+  /// The ~45s window is up. Finalize NOW so every recognized word is delivered before iOS's
+  /// background cpulimit kill (~60s), then release the session so the keyboard's panel flips to
+  /// "SAVED · TAP ▶ TO CONTINUE" and the next tap re-hops for a fresh window.
+  private func proactiveCap() {
+    flog("~45s proactive cap — finalizing before iOS ~60s background cpulimit kill")
+    if utteranceActive && !stopping { stopUtterance() }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { [weak self] in
+      guard let self, self.active else { return }
+      self.teardownSession()
     }
   }
 
@@ -342,6 +369,8 @@ public class VibeflowFlowSessionModule: Module {
     stopHeartbeat()
     micLevel = 0
     DispatchQueue.main.async {
+      self.sessionDeadlineTimer?.invalidate()
+      self.sessionDeadlineTimer = nil
       self.group?.removeObject(forKey: "flow_session_deadline_ts")
       self.publishCF("", forKey: "flow_session_deadline_ts")
       self.publishCF("0", forKey: "flow_level")  // one-shot sync on teardown is fine
@@ -431,20 +460,14 @@ public class VibeflowFlowSessionModule: Module {
     let request = SFSpeechAudioBufferRecognitionRequest()
     request.shouldReportPartialResults = true
     if #available(iOS 16, *) { request.addsPunctuation = true }
-    // Server (online) recognition is the DEFAULT — Apple's larger, more accurate model
-    // (the same backend Apple's own keyboard mic uses). Fall back to the on-device model
-    // ONLY when the user chose "On-device only" in Settings (flow_on_device == "true"),
-    // or when there's no network to reach Apple's servers.
-    // On-device recognition runs Apple's model LOCALLY and is far too CPU-heavy to sustain in
-    // the BACKGROUND: device logs show iOS killed us at ~62s with a "cpulimit violation" while
-    // localspeechrecognition ran the whole time. Long background dictation on iOS REQUIRES
-    // server (cloud) recognition — what Wispr uses — which offloads the model to Apple's
-    // servers and keeps our local CPU under the background budget. So the flow session uses
-    // cloud whenever there's network, and only falls back to on-device when genuinely OFFLINE
-    // (a fallback that is itself CPU-limited and can't run long). The user's "on-device only"
-    // Settings choice still governs the in-app/foreground recognizer, but not background
-    // keyboard dictation, where on-device physically can't sustain.
-    if !isOnline, recognizer.supportsOnDeviceRecognition {
+    // Capped keyboard tier: use ON-DEVICE recognition (works offline, no server per-request
+    // cap, and it's what iOS force-elects for English anyway). On-device is CPU-heavy — iOS
+    // kills a backgrounded app at ~60s with a "cpulimit violation" while its neural model runs
+    // — but the ~45s session cap (see sessionMaxSeconds) finalizes every word BEFORE the kill.
+    // Unlimited dictation is the separate Pro tier: a cloud STREAMING ASR (stream audio to our
+    // own server, like Wispr), NOT SFSpeechRecognizer, whose server mode can't be forced and
+    // whose on-device mode can't sustain the background. That path is a new module, not here.
+    if recognizer.supportsOnDeviceRecognition {
       request.requiresOnDeviceRecognition = true
     }
     // Bias recognition toward the user's vocabulary (name, job title, custom terms)
