@@ -1,7 +1,6 @@
 import AVFoundation
 import Accelerate
 import ExpoModulesCore
-import Network
 import Speech
 
 /// The **Flow Session** — the Wispr-style "one hop, then unlimited" engine.
@@ -39,26 +38,8 @@ public class VibeflowFlowSessionModule: Module {
   static let statusName = "com.vibeflow.flow.status"
 
   private var engine: AVAudioEngine?
-  /// Playback keep-alive. Device logs pinned the exact mechanism: Wispr's container app holds
-  /// a `mediaplaybackd` PLAYBACK session that flips its audio session to `Playing:YES` while
-  /// recording — THAT (with the `audio` UIBackgroundMode) is what keeps the backgrounded app
-  /// alive past 60s. Our earlier `AVAudioPlayer` rendered in-process and never reached
-  /// `Playing:YES` (our session logged `Playing:NO`, zero mediaplaybackd sessions), so iOS
-  /// suspended us mid-dictation — freezing the transcript AND killing delivery. So we use
-  /// `AVPlayer` (which runs through mediaplaybackd) looping a genuinely non-zero, inaudible
-  /// tone — real signal so it registers as playing, matching Wispr.
-  private var keepAlivePlayer: AVQueuePlayer?
-  private var keepAliveLooper: AVPlayerLooper?
+  private var player: AVAudioPlayerNode?
   private var active = false
-  /// Live mic amplitude (0…~1), updated by the input tap (peak-hold). Published to the App
-  /// Group as `flow_level` — piggybacked on the ~8Hz `flow_live_full` flush (NOT a separate
-  /// high-frequency forced-sync timer, which jetsammed the backgrounded app in 1.0.39) — so
-  /// the keyboard's waveform reflects REAL speech and quiets on a pause.
-  private var micLevel: Float = 0
-  /// Connectivity, for the server→on-device fallback. Written on the monitor's queue,
-  /// read on main when a segment starts — a stale bool only mis-picks one segment's mode.
-  private let pathMonitor = NWPathMonitor()
-  private var isOnline = true
 
   // Per-utterance recognition riding the always-on input tap, as a chain of
   // segments (see header). All of this state is owned by the MAIN thread.
@@ -87,17 +68,6 @@ public class VibeflowFlowSessionModule: Module {
   /// left behind by a force-quit/jetsam kill (which previously made the mic
   /// pretend to record into a dead process).
   private var heartbeatTimer: Timer?
-  /// The keyboard tier caps each stretch at ~45s: on-device recognition (which iOS forces for
-  /// English) is too CPU-heavy to survive iOS's ~60s background cpulimit, so we finalize every
-  /// word BEFORE the kill, then the keyboard's next tap re-hops for a fresh window. Unlimited
-  /// dictation is the separate cloud-ASR Pro tier.
-  private var sessionDeadlineTimer: Timer?
-  private let sessionMaxSeconds: TimeInterval = 45
-  // No session-level time cap any more: the real playback keep-alive (see keepAlivePlayer)
-  // keeps the backgrounded session alive indefinitely, so dictation runs until the user
-  // stops. The only remaining ~60s limit is Apple's PER-REQUEST recognizer cap, handled by
-  // rotating segments (below). Builds 1.0.24–1.0.27 died at ~60s because the keep-alive was
-  // wired wrong (a node inside the recording engine, not a system playback session).
   /// Requests being retired: the audio tap may be mid-`append` with a raw pointer,
   /// so the last strong reference must never be dropped at the exact swap moment.
   /// Held ~1s past retirement, then released.
@@ -107,35 +77,17 @@ public class VibeflowFlowSessionModule: Module {
   /// slightly stale value only shifts rotation by one 0.5s tick — acceptable.
   private var lastVoiceAt: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
 
-  // Rotation tuning. Dictation now runs UNLIMITED (the keep-alive beats the ~60s session
-  // termination), so we WILL cross Apple's ~60s PER-REQUEST recognizer limit and MUST
-  // rotate to a fresh request before it — otherwise the task errors and every later audio
-  // buffer is dropped. From minSegmentSeconds on we rotate at the first ≥quietGap speech
-  // pause (a seam at a pause costs no language-model context); hardCapSeconds forces a
-  // rotation even mid-sentence so no request ever reaches ~60s. Kept as long as safely
-  // possible so most rotations land on a natural pause, preserving the recognition quality
-  // of one continuous request. The live panel updates continuously (interim results); the
-  // local text pipeline runs one-shot on the full transcript at stop.
-  private let minSegmentSeconds: TimeInterval = 46
-  private let hardCapSeconds: TimeInterval = 50
+  // Rotation tuning: prefer a ≥0.6s pause once a segment is MIN_SEGMENT old; never
+  // let a segment reach the recognizer's ~60s per-request cap.
+  private let minSegmentSeconds: TimeInterval = 40
+  private let hardCapSeconds: TimeInterval = 55
   private let quietGapSeconds: TimeInterval = 0.6
-
-  /// Full running transcript for the keyboard's live recording panel: already-streamed
-  /// segments (`liveDelivered`) + the current un-streamed tail (`joinedTranscript`).
-  /// `flow_partial` only holds the tail (it resets each rotation), so the panel reads
-  /// this instead to show the whole dictation growing. Published throttled via CFPreferences.
-  private var liveDelivered = ""
-  private var lastLivePublish: CFAbsoluteTime = 0
+  // Total session cap: auto-stop the mic after ~45s. The keyboard draws a matching
+  // countdown line off `flow_session_deadline_ts`. Independent of per-segment rotation.
+  private let sessionMaxSeconds: TimeInterval = 45
+  private var capTimer: Timer?
 
   private var group: UserDefaults? { UserDefaults(suiteName: appGroup) }
-
-  /// Publish to the App Group via CFPreferences — the cross-process-reliable path the
-  /// keyboard reads with CFPreferencesCopyAppValue (plain UserDefaults writes from this
-  /// process aren't always visible to that read, so live text/countdown need this).
-  private func publishCF(_ value: String, forKey key: String) {
-    CFPreferencesSetAppValue(key as CFString, value as CFString, appGroup as CFString)
-    CFPreferencesAppSynchronize(appGroup as CFString)
-  }
 
   public func definition() -> ModuleDefinition {
     Name("VibeflowFlowSession")
@@ -143,15 +95,10 @@ public class VibeflowFlowSessionModule: Module {
 
     OnCreate {
       self.registerDarwinObserver()
-      self.pathMonitor.pathUpdateHandler = { [weak self] path in
-        self?.isOnline = (path.status == .satisfied)
-      }
-      self.pathMonitor.start(queue: DispatchQueue(label: "com.vibeflow.flow.net"))
     }
 
     OnDestroy {
       self.teardownSession()
-      self.pathMonitor.cancel()
       CFNotificationCenterRemoveEveryObserver(
         CFNotificationCenterGetDarwinNotifyCenter(),
         Unmanaged.passUnretained(self).toOpaque()
@@ -166,9 +113,6 @@ public class VibeflowFlowSessionModule: Module {
       if self.active { return true }
       do {
         try self.startEngine()
-        self.startSessionDeadline()  // fresh session — arm the ~45s cap + publish the countdown
-                                     // deadline here, NOT in startEngine (reassert re-runs
-                                     // startEngine and must not re-arm the clock or wipe text)
         self.active = true
         self.setFlag(true)
         // Engine capability marker: v2 = defers the keyboard hand-off to JS when
@@ -203,16 +147,12 @@ public class VibeflowFlowSessionModule: Module {
 
   private func startEngine() throws {
     let session = AVAudioSession.sharedInstance()
-    // Match the session config Wispr Flow's container app uses (device logs:
-    // "PlayAndRecord_NoBluetooth_DefaultToSpeaker"). Crucially we do NOT pass
-    // .mixWithOthers: a mixable/ambient source is treated as secondary and does NOT earn
-    // the uncapped background-audio treatment — we need to be the PRIMARY active audio app.
-    try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+    try session.setCategory(.playAndRecord, mode: .default,
+                            options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth])
     try session.setActive(true)
 
     engine?.stop()
     engine = nil
-    stopKeepAlive()
 
     let engine = AVAudioEngine()
     let input = engine.inputNode
@@ -230,105 +170,29 @@ public class VibeflowFlowSessionModule: Module {
         var peak: Float = 0
         vDSP_maxmgv(data, 1, &peak, vDSP_Length(buffer.frameLength))
         if peak > 0.02 { self.lastVoiceAt = CFAbsoluteTimeGetCurrent() }
-        self.micLevel = max(peak, self.micLevel)  // peak-hold; the ~8Hz publish reads + decays it
       }
     }
-    engine.prepare()
-    try engine.start()
+
+    // Silent playback loop — keeps iOS treating us as an active audio app between
+    // utterances (recording alone can be reclaimed more aggressively).
+    let player = AVAudioPlayerNode()
+    engine.attach(player)
+    if let silentFormat = AVAudioFormat(standardFormatWithSampleRate: 8000, channels: 1),
+       let silence = AVAudioPCMBuffer(pcmFormat: silentFormat, frameCapacity: 8000) {
+      silence.frameLength = 8000
+      engine.connect(player, to: engine.mainMixerNode, format: silentFormat)
+      engine.mainMixerNode.outputVolume = 0
+      engine.prepare()
+      try engine.start()
+      player.scheduleBuffer(silence, at: nil, options: .loops)
+      player.play()
+    } else {
+      engine.prepare()
+      try engine.start()
+    }
     self.engine = engine
-
-    // Start the REAL playback keep-alive. Failing here isn't fatal to recording (we'd just
-    // be cap-limited again), so it logs and continues rather than throwing.
-    startKeepAlive()
-
+    self.player = player
     startHeartbeat()
-  }
-
-  /// Loop an inaudible tone through `AVPlayer` (which runs through mediaplaybackd) so iOS
-  /// sees a real background PLAYBACK session and flips us to `Playing:YES` — the thing that
-  /// (with the `audio` UIBackgroundMode) keeps the backgrounded app alive while recording.
-  /// Built on the main run loop so `AVPlayerLooper`'s KVO-driven gapless looping works.
-  private func startKeepAlive() {
-    guard let url = Self.silentLoopURL() else {
-      flog("keep-alive: could not build loop file — session may get suspended")
-      return
-    }
-    DispatchQueue.main.async {
-      let queue = AVQueuePlayer()
-      queue.volume = 0.06                    // inaudible at this content amplitude, but non-zero
-      let looper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: url))
-      queue.play()
-      self.keepAlivePlayer = queue
-      self.keepAliveLooper = looper
-      self.flog("keep-alive: AVPlayer(mediaplaybackd) started")
-    }
-  }
-
-  private func stopKeepAlive() {
-    DispatchQueue.main.async {
-      self.keepAliveLooper?.disableLooping()
-      self.keepAlivePlayer?.pause()
-      self.keepAlivePlayer?.removeAllItems()
-      self.keepAliveLooper = nil
-      self.keepAlivePlayer = nil
-    }
-  }
-
-  /// Build (once, then cache) a 1s inaudible-but-NON-ZERO tone in the temp dir to loop via
-  /// AVPlayer. Non-zero is load-bearing: mediaplaybackd reports `Playing:YES` only for a
-  /// stream carrying real signal, and Playing:YES is what keeps us alive — pure silence
-  /// logged as `Playing:NO`. (New filename so devices don't reuse the old all-silent cache.)
-  private static func silentLoopURL() -> URL? {
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent("vf_keepalive_v2.caf")
-    if FileManager.default.fileExists(atPath: url.path) { return url }
-    guard let fmt = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1),
-          let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 44100) else { return nil }
-    buf.frameLength = 44100  // 1.0s, looped forever
-    if let ch = buf.floatChannelData?.pointee {
-      let n = Int(buf.frameLength)
-      for i in 0..<n {
-        ch[i] = 0.02 * sinf(2.0 * .pi * 110.0 * Float(i) / 44100.0)  // ~110Hz, ~-34dBFS content
-      }
-    }
-    do {
-      let file = try AVAudioFile(forWriting: url, settings: fmt.settings)
-      try file.write(from: buf)
-      return url
-    } catch {
-      return nil
-    }
-  }
-
-  /// Clear the last session's live transcript and any stale countdown deadline. Dictation
-  /// is unlimited now, so there's no proactive cap and no countdown for the keyboard to
-  /// show. Runs on main.
-  /// Arm the ~45s proactive cap and publish the deadline so the keyboard shows the countdown.
-  /// Also clears the last session's transcript. Called once at session start (not in
-  /// startEngine — a reassert re-runs startEngine and must not re-arm the clock).
-  private func startSessionDeadline() {
-    DispatchQueue.main.async {
-      self.sessionDeadlineTimer?.invalidate()
-      let deadlineMs = (Date().timeIntervalSince1970 + self.sessionMaxSeconds) * 1000
-      self.group?.set(String(deadlineMs), forKey: "flow_session_deadline_ts")
-      self.publishCF(String(deadlineMs), forKey: "flow_session_deadline_ts")
-      self.publishCF("", forKey: "flow_live_full")  // clear last session's transcript
-      self.sessionDeadlineTimer = Timer.scheduledTimer(withTimeInterval: self.sessionMaxSeconds,
-                                                       repeats: false) { [weak self] _ in
-        self?.proactiveCap()
-      }
-    }
-  }
-
-  /// The ~45s window is up. Finalize NOW so every recognized word is delivered before iOS's
-  /// background cpulimit kill (~60s), then release the session so the keyboard's panel flips to
-  /// "SAVED · TAP ▶ TO CONTINUE" and the next tap re-hops for a fresh window.
-  private func proactiveCap() {
-    flog("~45s proactive cap — finalizing before iOS ~60s background cpulimit kill")
-    if utteranceActive && !stopping { stopUtterance() }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { [weak self] in
-      guard let self, self.active else { return }
-      self.teardownSession()
-    }
   }
 
   /// Liveness beacon (see `heartbeatTimer`): refreshed every 2s while the session
@@ -362,25 +226,15 @@ public class VibeflowFlowSessionModule: Module {
     // speech. Self is captured STRONGLY so the rescue still runs if the module is
     // being deallocated (OnDestroy during a JS reload).
     let deliver = {
-      // fullTranscript() (not joinedTranscript) — earlier finalized segments live in
-      // liveDelivered now that we no longer stream mid-utterance, so a mid-dictation
-      // teardown (Live Activity "End" / JS reload) must ship them too, not just the tail.
-      let joined = self.fullTranscript()
+      let joined = self.joinedTranscript()
       self.finishUtterance(with: joined.isEmpty ? nil : joined)
     }
     if Thread.isMainThread { deliver() } else { DispatchQueue.main.async(execute: deliver) }
     stopHeartbeat()
-    micLevel = 0
-    DispatchQueue.main.async {
-      self.sessionDeadlineTimer?.invalidate()
-      self.sessionDeadlineTimer = nil
-      self.group?.removeObject(forKey: "flow_session_deadline_ts")
-      self.publishCF("", forKey: "flow_session_deadline_ts")
-      self.publishCF("0", forKey: "flow_level")  // one-shot sync on teardown is fine
-    }
-    stopKeepAlive()
+    player?.stop()
     engine?.inputNode.removeTap(onBus: 0)
     engine?.stop()
+    player = nil
     engine = nil
     active = false
     setFlag(false)
@@ -398,17 +252,6 @@ public class VibeflowFlowSessionModule: Module {
         pendingStart = true
       } else {
         stopUtterance()
-        // The user ended this dictation. Once the utterance has finalised, release the
-        // whole session (and the mic) so the keyboard's panel hides, the keys return, and
-        // iOS drops the mic-in-use indicator — an unlimited session must not hold the mic
-        // open forever. A quick double-tap to continue sets pendingStart / starts a new
-        // utterance, which cancels this teardown. The next fresh mic tap re-hops (one hop
-        // per dictation, Wispr-style).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
-          guard let self, self.active, !self.utteranceActive,
-                !self.pendingStart, !self.stopping else { return }
-          self.teardownSession()
-        }
       }
     } else {
       startUtterance()
@@ -428,12 +271,19 @@ public class VibeflowFlowSessionModule: Module {
     utteranceGen += 1
     utteranceActive = true
     stopping = false
-    liveDelivered = ""
     segmentTexts = [:]
     endedSegments = []
     utteranceSeqs = []
     fastFails = 0
     startSegment()
+    // ~45s cap: publish the deadline (for the keyboard's countdown line) + auto-stop.
+    capTimer?.invalidate()
+    let deadlineMs = (Date().timeIntervalSince1970 + sessionMaxSeconds) * 1000
+    group?.set(String(deadlineMs), forKey: "flow_session_deadline_ts")
+    capTimer = Timer.scheduledTimer(withTimeInterval: sessionMaxSeconds, repeats: false) { [weak self] _ in
+      guard let self, self.utteranceActive, !self.stopping else { return }
+      self.stopUtterance()
+    }
     setStatus("listening")
   }
 
@@ -447,9 +297,7 @@ public class VibeflowFlowSessionModule: Module {
   private func startSegment() {
     guard utteranceActive else { return }
     guard let recognizer = makeRecognizer(), recognizer.isAvailable else {
-      // fullTranscript() — bailing out mid-utterance must still deliver every segment
-      // already accumulated in liveDelivered, not just the current tail.
-      let joined = fullTranscript()
+      let joined = joinedTranscript()
       finishUtterance(with: joined.isEmpty ? nil : joined)
       return
     }
@@ -465,14 +313,11 @@ public class VibeflowFlowSessionModule: Module {
     let request = SFSpeechAudioBufferRecognitionRequest()
     request.shouldReportPartialResults = true
     if #available(iOS 16, *) { request.addsPunctuation = true }
-    // Capped keyboard tier: use ON-DEVICE recognition (works offline, no server per-request
-    // cap, and it's what iOS force-elects for English anyway). On-device is CPU-heavy — iOS
-    // kills a backgrounded app at ~60s with a "cpulimit violation" while its neural model runs
-    // — but the ~45s session cap (see sessionMaxSeconds) finalizes every word BEFORE the kill.
-    // Unlimited dictation is the separate Pro tier: a cloud STREAMING ASR (stream audio to our
-    // own server, like Wispr), NOT SFSpeechRecognizer, whose server mode can't be forced and
-    // whose on-device mode can't sustain the background. That path is a new module, not here.
-    if recognizer.supportsOnDeviceRecognition {
+    // Honor the app's privacy setting (Settings → On-device only) whenever the
+    // locale's on-device model exists. Rotation makes on-device viable for long
+    // dictation, so the "voice never leaves the phone" promise holds here too.
+    if group?.string(forKey: "flow_on_device") != "false",
+       recognizer.supportsOnDeviceRecognition {
       request.requiresOnDeviceRecognition = true
     }
     // Bias recognition toward the user's vocabulary (name, job title, custom terms)
@@ -499,23 +344,6 @@ public class VibeflowFlowSessionModule: Module {
         if let text {
           self.segmentTexts[seq] = text
           self.group?.set(self.joinedTranscript(), forKey: "flow_partial")
-          // Full live transcript for the keyboard panel (throttled to ~8Hz).
-          let now = CFAbsoluteTimeGetCurrent()
-          if now - self.lastLivePublish > 0.12 {
-            self.lastLivePublish = now
-            let full = (self.liveDelivered + " " + self.joinedTranscript())
-              .trimmingCharacters(in: .whitespaces)
-            // Piggyback the REAL mic level onto this same ~8Hz flush — Set (no extra
-            // CFPreferencesAppSynchronize) then let publishCF's sync flush both. A separate
-            // ~14Hz forced-sync level timer is what got the backgrounded app jetsammed in
-            // 1.0.39. Voice-gated so a pause reads as calm.
-            let voiced = CFAbsoluteTimeGetCurrent() - self.lastVoiceAt < 0.35
-            let lvl = voiced ? min(1.0, Double(self.micLevel) * 6) : 0
-            self.micLevel *= 0.5
-            CFPreferencesSetAppValue("flow_level" as CFString,
-                                     String(format: "%.3f", lvl) as CFString, self.appGroup as CFString)
-            self.publishCF(full, forKey: "flow_live_full")  // this sync flushes flow_level too
-          }
         }
         if isFinal || failed {
           self.segmentEnded(seq, gen: gen)
@@ -569,25 +397,9 @@ public class VibeflowFlowSessionModule: Module {
     endedSegments.insert(seq)
     tasks[seq] = nil
     recognizers[seq] = nil
-    // Stream this segment's final text to the keyboard NOW (mid-utterance) so long
-    // dictations insert continuously and can never be stranded if iOS suspends the
-    // background app after "stop". Cleared so the final stop-join won't re-send it.
-    if !stopping, let segText = segmentTexts[seq], !segText.isEmpty {
-      segmentTexts[seq] = nil
-      if !liveDelivered.isEmpty { liveDelivered += " " }
-      liveDelivered += segText  // accumulate; the FULL transcript is delivered once at stop
-      flog("accumulate segment \(seq) len=\(segText.count)")
-      // We deliberately do NOT stream this segment to the keyboard mid-utterance.
-      // The keyboard is fed through a single App-Group slot (latest_dictation), so
-      // multiple mid-utterance deliveries overwrote each other and only the LAST
-      // segment survived — the reported "middle of my dictation went missing" bug.
-      // Instead every segment lands in `liveDelivered` and finishUtterance ships the
-      // whole thing in one write. (A cross-process append-queue is the right answer
-      // for the future unlimited/streaming Pro tier; the 45s free tier doesn't need it.)
-    }
     if stopping {
       if endedSegments.isSuperset(of: utteranceSeqs) {
-        let joined = fullTranscript()
+        let joined = joinedTranscript()
         finishUtterance(with: joined.isEmpty ? nil : joined)
       }
       return
@@ -600,7 +412,7 @@ public class VibeflowFlowSessionModule: Module {
     if lived < 1.5 && !gotText {
       fastFails += 1
       if fastFails >= 3 {
-        let joined = fullTranscript()
+        let joined = joinedTranscript()
         finishUtterance(with: joined.isEmpty ? nil : joined)
         return
       }
@@ -614,16 +426,17 @@ public class VibeflowFlowSessionModule: Module {
     guard utteranceActive else { return }
     stopping = true
     rotateTimer?.invalidate()
+    capTimer?.invalidate()
+    capTimer = nil
+    group?.set("", forKey: "flow_session_deadline_ts")
     setStatus("processing")
     request?.endAudio()
-    flog("stopUtterance — segments=\(utteranceSeqs.count) ended=\(endedSegments.count); 2.5s watchdog armed")
     // Safety net: if the segments don't all finalise promptly, ship what we already
     // have — the utterance must NEVER hang in "processing".
     let gen = utteranceGen
     DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
       guard let self, self.utteranceActive, self.utteranceGen == gen else { return }
-      self.flog("stop watchdog fired — force-finishing")
-      let joined = self.fullTranscript()
+      let joined = self.joinedTranscript()
       self.finishUtterance(with: joined.isEmpty ? nil : joined)
     }
   }
@@ -646,18 +459,6 @@ public class VibeflowFlowSessionModule: Module {
       .map { $0.value.trimmingCharacters(in: .whitespaces) }
       .filter { !$0.isEmpty }
       .joined(separator: " ")
-  }
-
-  /// The COMPLETE utterance so far: every already-finalised segment (accumulated in
-  /// `liveDelivered`) plus the current un-finalised tail (`joinedTranscript`). This is
-  /// what stop delivers, so no segment is ever dropped.
-  private func fullTranscript() -> String {
-    let tail = joinedTranscript()
-    let combined: String
-    if liveDelivered.isEmpty { combined = tail }
-    else if tail.isEmpty { combined = liveDelivered }
-    else { combined = liveDelivered + " " + tail }
-    return combined.trimmingCharacters(in: .whitespaces)
   }
 
   private func finishUtterance(with text: String?) {
@@ -701,58 +502,30 @@ public class VibeflowFlowSessionModule: Module {
     // delivery) gates everything; utteranceGen additionally gates the SHARED
     // status string, which belongs to the newest utterance. Self is captured
     // STRONGLY so the rescue survives module teardown (JS reload mid-dictation).
-    // Deliver the COMPLETE accumulated transcript (every segment) in one write.
-    deliverUtterance(text, live: false)
-  }
-
-  /// Hand ONE chunk of recognised text to JS (which runs the local pipeline and pings
-  /// the keyboard). `live:true` = a segment streamed WHILE still recording (status stays
-  /// "listening"); `live:false` = the final chunk on stop (status → processing). If JS
-  /// hasn't claimed the chunk within 8s, deliver the raw text so nothing is EVER lost.
-  /// Streaming (live) chunks are how long dictations survive: they insert continuously
-  /// as they're recognised, so iOS suspending the app after "stop" can't strand them.
-  private func deliverUtterance(_ text: String, live: Bool) {
-    if !live { setStatus("processing") }
+    setStatus("processing")
     let utteranceId = String(Int(Date().timeIntervalSince1970 * 1000))
     group?.set(utteranceId, forKey: "flow_utterance_id")
     sendEvent("utteranceFinal", ["text": text, "id": utteranceId])
-    flog("deliver chunk live=\(live) id=\(utteranceId) len=\(text.count)")
     let raw = text
     let gen = utteranceGen
-    // Backstop: if JS hasn't actually DELIVERED this chunk to the keyboard shortly, do it
-    // natively so a spoken word is NEVER lost. We check REAL delivery (latest_dictation_ts
-    // advancing to at/after this utterance) rather than a mere claim — the app is
-    // backgrounded during a keyboard flow session, so JS can set its claim id and then be
-    // suspended before it writes, which used to strand the whole dictation. And we write via
-    // CFPreferences (publishCF): a plain UserDefaults write from this backgrounded process
-    // is not reliably visible to the keyboard's CFPreferences read (the same reason the live
-    // panel uses publishCF) — writing latest_dictation only over UserDefaults is exactly why
-    // words showed in the panel but never reached the text field.
-    DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
-      let deliveredTs = Double(self.cfRead("latest_dictation_ts") ?? "") ?? 0
-      if deliveredTs >= (Double(utteranceId) ?? .greatestFiniteMagnitude) { return } // JS delivered
-      let ts = String(Int(Date().timeIntervalSince1970 * 1000))
+    DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+      // Claim ids are ms-epoch and JS receives events in order, so a claim for
+      // this utterance OR ANY LATER one proves JS received (and owns) this one.
+      // (Equality alone broke back-to-back dictations: B's claim overwrote the
+      // shared slot and A's fallback then re-inserted A raw.)
+      let claim = Int(self.group?.string(forKey: "flow_claim_id") ?? "") ?? 0
+      if claim >= (Int(utteranceId) ?? Int.max) { return } // JS alive
+      // JS never claimed → deliver raw so the dictation is not lost. Mark the
+      // utterance as fallback-delivered so a late JS pass won't double-insert.
       self.group?.set(raw, forKey: "latest_dictation")
-      self.group?.set(ts, forKey: "latest_dictation_ts")
+      self.group?.set(String(Date().timeIntervalSince1970 * 1000), forKey: "latest_dictation_ts")
       self.group?.set(utteranceId, forKey: "flow_fallback_done")
-      self.publishCF(raw, forKey: "latest_dictation")
-      self.publishCF(ts, forKey: "latest_dictation_ts")
-      self.publishCF(utteranceId, forKey: "flow_fallback_done")
-      if !live, self.utteranceGen == gen,
-         self.cfRead("kbd_flow_status") == "processing" {
+      if self.utteranceGen == gen,
+         self.group?.string(forKey: "kbd_flow_status") == "processing" {
         self.setStatus("inserted") // status is still ours — close the loop
       }
       Self.post(Self.resultName)
-      self.flog("native delivered id=\(utteranceId) len=\(raw.count)")
     }
-  }
-
-  /// Cross-process-consistent read (mirror of `publishCF`): forces a sync so we see the
-  /// current value even when it was written from another process, or by JS via CFPreferences.
-  private func cfRead(_ key: String) -> String? {
-    CFPreferencesAppSynchronize(appGroup as CFString)
-    return (CFPreferencesCopyAppValue(key as CFString, appGroup as CFString) as? String)
-      ?? group?.string(forKey: key)
   }
 
   // MARK: - Plumbing
@@ -765,12 +538,7 @@ public class VibeflowFlowSessionModule: Module {
     group?.set(status, forKey: "kbd_flow_status")
     Self.post(Self.statusName)
     sendEvent("flowStatus", ["status": status])
-    flog("status → \(status)")
   }
-
-  /// Lightweight diagnostic log — filter Console.app on "VibeFlow.flow" to trace the
-  /// flow-session lifecycle on-device (there's no local iOS simulator for this flow).
-  private func flog(_ msg: String) { NSLog("[VibeFlow.flow] %@", msg) }
 
   private static func post(_ name: String) {
     CFNotificationCenterPostNotification(

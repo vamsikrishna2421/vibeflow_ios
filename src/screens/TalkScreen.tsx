@@ -12,7 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
 import * as Updates from 'expo-updates';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, AppState, Easing, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Animated, AppState, Easing, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
@@ -58,6 +58,9 @@ export function TalkScreen() {
   const { signedIn } = useAuth();
   const signedInRef = useRef(signedIn);
   signedInRef.current = signedIn;
+  const smartRef = useRef(settings.smartFormat);
+  smartRef.current = settings.smartFormat;
+
   // Tell the native engine whether flow utterances should wait for an AI polish
   // (engine v2+ defers the keyboard hand-off to JS when this flag is on).
   useEffect(() => {
@@ -68,9 +71,6 @@ export function TalkScreen() {
   const [draft, setDraft] = useState('');
   const [toast, setToast] = useState<string | null>(null);
   const [burstNonce, setBurstNonce] = useState(0);
-  // True while an in-app AI pass (polish/reformat) is running — drives the orb's
-  // "Formatting" state.
-  const [aiBusy, setAiBusy] = useState(false);
   // Last flow status from the App Group — shown in the debug stamp so a failed
   // background utterance is visible the moment the app is reopened.
   const [lastFlowStatus, setLastFlowStatus] = useState<string | null>(null);
@@ -142,7 +142,6 @@ export function TalkScreen() {
         return;
       }
       if (settings.smartFormat && signedInRef.current) {
-        setAiBusy(true);
         flashToast('✨ Polishing…');
         polish(next.trim(), 'auto')
           .then((r) => {
@@ -154,8 +153,7 @@ export function TalkScreen() {
               flashToast('Free polishes used up this week — Pro is unlimited');
             }
           })
-          .catch(() => flashToast('Couldn’t polish just now — your raw dictation is ready'))
-          .finally(() => setAiBusy(false));
+          .catch(() => flashToast('Couldn’t polish just now — your raw dictation is ready'));
         return;
       }
       if (settings.autoCopy) {
@@ -224,17 +222,25 @@ export function TalkScreen() {
           { ...settingsRef.current, voiceCommands: false },
           configRef.current,
         );
-        const finalText = outcome.kind === 'text' && outcome.text ? outcome.text : text;
+        let finalText = outcome.kind === 'text' && outcome.text ? outcome.text : text;
 
-        // 2. NO per-utterance network AI pass here. This runs in the BACKGROUND app
-        //    during a keyboard flow session, and iOS suspends that app the moment the
-        //    audio stops — so an `await polish()` here could strand the dictation
-        //    forever (with the native raw-text fallback already silenced by our claim
-        //    above). The user's spoken words must NEVER be lost, so we deliver the
-        //    locally-formatted transcript instantly. AI "smart formatting" is a
-        //    deliberate one-shot pass on the whole draft in the Talk screen (one prompt,
-        //    not per-utterance chunks streamed to the LLM).
-        updateLiveActivity('Inserted ✓', finalText);
+        // 2. Optional AI pass — for STRUCTURE (server 'auto' style shapes the text
+        //    to its destination), not for commas.
+        if (engineDefers && smartRef.current && signedInRef.current) {
+          updateLiveActivity('Structuring…', '');
+          const r = await polish(finalText, 'auto');
+          if (r.ok && r.text) {
+            finalText = r.text;
+            updateLiveActivity(
+              r.isPro ? 'Inserted ✓' : `Inserted ✓ · ${r.remaining ?? '?'} polishes left`,
+              finalText,
+            );
+          } else {
+            updateLiveActivity('Inserted (local formatting)', finalText);
+          }
+        } else {
+          updateLiveActivity('Inserted ✓', finalText);
+        }
 
         // 3. Deliver to the keyboard.
         if (engineDefers) {
@@ -447,9 +453,6 @@ export function TalkScreen() {
   const applyEdit = async () => {
     const instruction = editInstruction.trim();
     if (!instruction) return;
-    // Close the keyboard first so the updated draft + result toast are visible
-    // (they sit below the input, which the keyboard otherwise covers).
-    Keyboard.dismiss();
     const ok = await runPolishStyle('instruct', instruction);
     if (ok) setEditInstruction('');
   };
@@ -474,10 +477,6 @@ export function TalkScreen() {
     haptic.tap();
   };
 
-  // Three orb states drive the hero: idle → listening → processing (AI formatting).
-  const processing = aiBusy || reformatting !== null;
-  const micState: MicState = listening ? 'listening' : processing ? 'processing' : 'idle';
-
   return (
     <View style={[styles.root, { paddingTop: insets.top + 12 }]}>
       <AuroraBackdrop />
@@ -494,7 +493,6 @@ export function TalkScreen() {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
-        automaticallyAdjustKeyboardInsets
         showsVerticalScrollIndicator={false}
       >
       {totalWords > 0 ? (
@@ -591,18 +589,12 @@ export function TalkScreen() {
       ) : (
       <View style={[styles.center, showDraft && styles.centerCompact]}>
         <Text style={styles.prompt}>
-          {listening
-            ? 'Listening…'
-            : processing
-            ? 'Formatting…'
-            : showDraft
-            ? 'Tap to add more'
-            : 'Tap to talk'}
+          {listening ? 'Listening…' : showDraft ? 'Tap to add more' : 'Tap to talk'}
         </Text>
 
-        <MicButton state={micState} level={dictation.level} onPress={toggle} />
+        <MicButton listening={listening} level={dictation.level} onPress={toggle} />
 
-        <Waveform state={micState} level={dictation.level} />
+        <Waveform listening={listening} level={dictation.level} />
 
         {dictation.error ? (
           <Text style={styles.error}>{dictation.error}</Text>
@@ -708,23 +700,18 @@ export function TalkScreen() {
 
       {toast ? (
         <View style={[styles.toast, { bottom: insets.bottom + 16 }]}>
-          <Ionicons
-            name={/couldn|could not|cannot|can'?t|failed|used up|try again/i.test(toast) ? 'alert-circle' : 'checkmark-circle'}
-            size={18}
-            color={/couldn|could not|cannot|can'?t|failed|used up|try again/i.test(toast) ? Colors.amber : Colors.success}
-          />
+          <Ionicons name="checkmark-circle" size={18} color={Colors.success} />
           <Text style={styles.toastText} numberOfLines={2}>
             {toast}
           </Text>
         </View>
       ) : null}
 
-      {/* OTA code stamp — the founder reads this to confirm which bundle shipped.
-          The flow/host details are dev-only noise, so they stay behind __DEV__. */}
+      {/* Code-version stamp: which OTA bundle is actually running (debug lifeline). */}
       <Text style={styles.buildStamp}>
         code {Updates.updateId ? Updates.updateId.slice(-8) : 'embedded'}
-        {__DEV__ && lastFlowStatus ? ` · flow: ${lastFlowStatus}` : ''}
-        {__DEV__ && recordHost ? ` · from: ${recordHost}` : ''}
+        {lastFlowStatus ? ` · flow: ${lastFlowStatus}` : ''}
+        {recordHost ? ` · from: ${recordHost}` : ''}
       </Text>
     </View>
   );
@@ -867,28 +854,21 @@ function AuroraBackdrop() {
   );
 }
 
-// --- voice orb (layered mic: halo rings, glow, highlight, 3 states) ----------
-
-type MicState = 'idle' | 'listening' | 'processing';
+// --- mic button (pulse) ------------------------------------------------------
 
 function MicButton({
-  state,
+  listening,
   level,
   onPress,
 }: {
-  state: MicState;
+  listening: boolean;
   level: number;
   onPress: () => void;
 }) {
-  const listening = state === 'listening';
-  const processing = state === 'processing';
+  const pulse = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(1)).current;
+  const breath = useRef(new Animated.Value(0)).current;
 
-  const pulse = useRef(new Animated.Value(0)).current; // listening outer pulse
-  const breath = useRef(new Animated.Value(0)).current; // idle breathe
-  const spin = useRef(new Animated.Value(0)).current; // processing ring rotation
-  const scale = useRef(new Animated.Value(1)).current; // level-driven core scale
-
-  // Listening: an outer halo expands and fades, every 1.4s.
   useEffect(() => {
     if (listening) {
       const loop = Animated.loop(
@@ -903,101 +883,56 @@ function MicButton({
     pulse.setValue(0);
   }, [listening, pulse]);
 
-  // Idle: a slow breathing ring — the orb feels alive before you touch it.
+  // Idle "breathing" glow — the mic feels alive before you ever touch it.
   useEffect(() => {
-    if (state === 'idle') {
+    if (!listening) {
       const loop = Animated.loop(
         Animated.sequence([
-          Animated.timing(breath, { toValue: 1, duration: 2400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(breath, { toValue: 0, duration: 2400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(breath, { toValue: 1, duration: 2600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(breath, { toValue: 0, duration: 2600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
         ]),
       );
       loop.start();
       return () => loop.stop();
     }
     breath.setValue(0);
-  }, [state, breath]);
-
-  // Processing: a segmented ring rotates continuously while the AI formats.
-  useEffect(() => {
-    if (processing) {
-      spin.setValue(0);
-      const loop = Animated.loop(
-        Animated.timing(spin, { toValue: 1, duration: 1600, easing: Easing.linear, useNativeDriver: true }),
-      );
-      loop.start();
-      return () => loop.stop();
-    }
-    spin.setValue(0);
-  }, [processing, spin]);
+  }, [listening, breath]);
 
   useEffect(() => {
     Animated.spring(scale, {
-      toValue: 1 + (listening ? level * 0.1 : 0),
+      toValue: 1 + (listening ? level * 0.12 : 0),
       useNativeDriver: true,
       speed: 20,
       bounciness: 6,
     }).start();
   }, [level, listening, scale]);
 
-  const pulseScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.34] });
-  const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.32, 0] });
-  const breatheScale = breath.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
-  const breatheOpacity = breath.interpolate({ inputRange: [0, 1], outputRange: [0.12, 0.26] });
-  const spinDeg = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
-
-  // The orb keeps its brand gradient in every state (per the approved design);
-  // state reads from the halos, glow and rotating ring, not a colour swap.
-  const glow = listening
-    ? { shadowOpacity: 0.6, shadowRadius: 34 }
-    : processing
-    ? { shadowOpacity: 0.42, shadowRadius: 28 }
-    : { shadowOpacity: 0.34, shadowRadius: 24 };
+  const ringScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.8] });
+  const ringOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0] });
+  const breathScale = breath.interpolate({ inputRange: [0, 1], outputRange: [1.06, 1.22] });
+  const breathOpacity = breath.interpolate({ inputRange: [0, 1], outputRange: [0.1, 0.3] });
 
   return (
     <View style={styles.micArea}>
-      {/* idle breathing ring */}
-      {state === 'idle' ? (
-        <Animated.View
-          style={[styles.breatheRing, { transform: [{ scale: breatheScale }], opacity: breatheOpacity }]}
-        />
-      ) : null}
-      {/* listening outer pulse */}
       {listening ? (
         <Animated.View
-          style={[styles.pulseRing, { transform: [{ scale: pulseScale }], opacity: pulseOpacity }]}
+          style={[styles.ring, { transform: [{ scale: ringScale }], opacity: ringOpacity }]}
         />
-      ) : null}
-      {/* static halo rings */}
-      <View style={styles.haloOuter} />
-      <View style={styles.haloInner} />
-      {/* processing rotating segmented ring (brand arc + cyan accent) */}
-      {processing ? (
-        <Animated.View style={[styles.procRing, { transform: [{ rotate: spinDeg }] }]} />
-      ) : null}
-      {/* core */}
+      ) : (
+        <Animated.View
+          style={[styles.ring, { transform: [{ scale: breathScale }], opacity: breathOpacity }]}
+        />
+      )}
       <Animated.View style={{ transform: [{ scale }] }}>
-        <Pressable
-          onPress={onPress}
-          accessibilityRole="button"
-          accessibilityLabel={listening ? 'Stop dictation' : 'Start dictation'}
-        >
-          <View style={[styles.orbCore, glow]}>
-            <LinearGradient
-              colors={[...heroMicGradient]}
-              start={{ x: 0.15, y: 0.1 }}
-              end={{ x: 0.9, y: 1 }}
-              style={styles.orbGrad}
-            >
-              <LinearGradient
-                colors={['rgba(255,255,255,0.34)', 'rgba(255,255,255,0)']}
-                start={{ x: 0.1, y: 0.05 }}
-                end={{ x: 0.7, y: 0.72 }}
-                style={styles.orbSheen}
-              />
-              <Ionicons name={listening ? 'stop' : 'mic'} size={44} color="#fff" />
-            </LinearGradient>
-          </View>
+        <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={listening ? 'Stop' : 'Start dictation'}>
+          <LinearGradient
+            colors={listening ? ['#E54749', '#FF7A6B'] : [...heroMicGradient]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.mic}
+          >
+            <Ionicons name={listening ? 'stop' : 'mic'} size={46} color="#fff" />
+          </LinearGradient>
         </Pressable>
       </Animated.View>
     </View>
@@ -1006,12 +941,9 @@ function MicButton({
 
 // --- waveform ----------------------------------------------------------------
 
-function Waveform({ state, level }: { state: MicState; level: number }) {
-  const listening = state === 'listening';
-  const processing = state === 'processing';
+function Waveform({ listening, level }: { listening: boolean; level: number }) {
   const bars = useRef(Array.from({ length: BAR_COUNT }, () => new Animated.Value(0.2))).current;
 
-  // Listening: bars driven by live mic amplitude.
   useEffect(() => {
     if (!listening) return;
     const target = Math.max(0.15, level);
@@ -1030,7 +962,7 @@ function Waveform({ state, level }: { state: MicState; level: number }) {
 
   // Idle: a slow wave travels through the bars — the brand's waveform, alive.
   useEffect(() => {
-    if (state !== 'idle') return;
+    if (listening) return;
     const loops = bars.map((bar, i) =>
       Animated.loop(
         Animated.sequence([
@@ -1043,52 +975,22 @@ function Waveform({ state, level }: { state: MicState; level: number }) {
     );
     loops.forEach((l) => l.start());
     return () => loops.forEach((l) => l.stop());
-  }, [state, bars]);
-
-  // Processing: the bars collapse to a tight, dot-like sequential pulse (left→right).
-  useEffect(() => {
-    if (!processing) return;
-    const loops = bars.map((bar, i) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(i * 90),
-          Animated.timing(bar, { toValue: 0.5, duration: 300, easing: Easing.out(Easing.quad), useNativeDriver: false }),
-          Animated.timing(bar, { toValue: 0.14, duration: 300, easing: Easing.in(Easing.quad), useNativeDriver: false }),
-          Animated.delay((BAR_COUNT - i) * 90),
-        ]),
-      ),
-    );
-    loops.forEach((l) => l.start());
-    return () => loops.forEach((l) => l.stop());
-  }, [processing, bars]);
+  }, [listening, bars]);
 
   return (
     <View style={styles.wave}>
-      {bars.map((bar, i) => {
-        const centre = Math.abs(i - (BAR_COUNT - 1) / 2) <= 1;
-        const color = listening
-          ? Colors.brand
-          : processing
-          ? centre
-            ? Colors.success
-            : Colors.brand
-          : `${Colors.brand}73`;
-        return (
-          <Animated.View
-            key={i}
-            style={[
-              styles.bar,
-              {
-                height: bar.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: processing ? [5, 20] : [6, 46],
-                }),
-                backgroundColor: color,
-              },
-            ]}
-          />
-        );
-      })}
+      {bars.map((bar, i) => (
+        <Animated.View
+          key={i}
+          style={[
+            styles.bar,
+            {
+              height: bar.interpolate({ inputRange: [0, 1], outputRange: [6, 46] }),
+              backgroundColor: listening ? Colors.brand : 'rgba(124,92,255,0.45)',
+            },
+          ]}
+        />
+      ))}
     </View>
   );
 }
@@ -1126,7 +1028,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderRadius: 999,
-    backgroundColor: `${Colors.brand}24`,
+    backgroundColor: 'rgba(124,92,255,0.14)',
     borderWidth: 1,
     borderColor: 'rgba(160,130,255,0.45)',
     shadowColor: Colors.brand,
@@ -1134,7 +1036,7 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 4 },
   },
-  sessionDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: Colors.success },
+  sessionDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#39D98A' },
   wordStat: { color: Colors.inkFaint, fontSize: 12.5, marginTop: 10 },
   sessionText: { flex: 1, color: Colors.ink, fontSize: 12.5, lineHeight: 17 },
 
@@ -1142,38 +1044,9 @@ const styles = StyleSheet.create({
   bootBig: { color: Colors.ink, fontSize: 20, lineHeight: 28, textAlign: 'center', marginTop: 14, paddingHorizontal: 8 },
   bootSub: { color: Colors.inkFaint, fontSize: 14.5, lineHeight: 21, textAlign: 'center', marginTop: 14, paddingHorizontal: 6 },
 
-  // --- voice orb ---
-  micArea: { width: 210, height: 210, alignItems: 'center', justifyContent: 'center' },
-  breatheRing: {
-    position: 'absolute', width: 184, height: 184, borderRadius: 92,
-    borderWidth: 1, borderColor: 'rgba(168,85,247,0.45)',
-  },
-  pulseRing: {
-    position: 'absolute', width: 150, height: 150, borderRadius: 75,
-    borderWidth: 1.5, borderColor: 'rgba(168,130,255,0.55)',
-  },
-  haloOuter: {
-    position: 'absolute', width: 184, height: 184, borderRadius: 92,
-    borderWidth: 1, borderColor: 'rgba(168,85,247,0.16)',
-  },
-  haloInner: {
-    position: 'absolute', width: 152, height: 152, borderRadius: 76,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
-  },
-  procRing: {
-    position: 'absolute', width: 152, height: 152, borderRadius: 76,
-    borderWidth: 3, borderColor: 'transparent',
-    borderTopColor: Colors.brand, borderRightColor: Colors.success,
-  },
-  orbCore: {
-    width: 122, height: 122, borderRadius: 61,
-    shadowColor: Colors.brand, shadowOffset: { width: 0, height: 6 }, elevation: 14,
-  },
-  orbGrad: {
-    width: 122, height: 122, borderRadius: 61, alignItems: 'center', justifyContent: 'center',
-    overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)',
-  },
-  orbSheen: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  micArea: { width: 150, height: 150, alignItems: 'center', justifyContent: 'center' },
+  ring: { position: 'absolute', width: 120, height: 120, borderRadius: 60, backgroundColor: '#7C5CFF' },
+  mic: { width: 116, height: 116, borderRadius: 58, alignItems: 'center', justifyContent: 'center' },
 
   wave: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 50, marginTop: 22 },
   bar: { width: 5, borderRadius: 3 },
@@ -1194,7 +1067,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   kWord: { color: Colors.karaokeDim, fontSize: 22, lineHeight: 32, fontWeight: '600' },
-  kWordHot: { color: Colors.ink, textShadowColor: `${Colors.brand}CC`, textShadowRadius: 12, textShadowOffset: { width: 0, height: 0 } },
+  kWordHot: { color: Colors.ink, textShadowColor: 'rgba(124,92,255,0.8)', textShadowRadius: 12, textShadowOffset: { width: 0, height: 0 } },
 
   burstWrap: { position: 'absolute', alignSelf: 'center', top: '38%', alignItems: 'center', justifyContent: 'center' },
   burstRing: { position: 'absolute', width: 90, height: 90, borderRadius: 45, borderWidth: 3, borderColor: Colors.success },
@@ -1249,7 +1122,7 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: `${Colors.brand}33`,
+    backgroundColor: 'rgba(124,92,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },

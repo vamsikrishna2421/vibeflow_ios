@@ -1,6 +1,4 @@
 import UIKit
-import Speech
-import AVFoundation
 
 /// A key that gives instant press feedback by swapping its background on highlight
 /// (UIButton toggles `isHighlighted` during touch), so typing feels responsive
@@ -47,240 +45,6 @@ final class GapForgivingStack: UIStackView {
     }
 }
 
-/// Full-screen recording panel shown over the keys while dictating. A live waveform fills
-/// the strip, a red STOP button sits where the mic is (tap it to end), and the whole key
-/// area becomes the transcript streaming in. The free tier caps each stretch at ~45s
-/// (`windowSeconds`), shown as a countdown ring; unlimited dictation is the separate paid
-/// cloud tier. The host app publishes `flow_live_full` (the growing transcript) to the App
-/// Group; the keyboard feeds it in via `render(transcript:)`. The waveform self-animates on
-/// a display link.
-final class RecordingPanelView: UIView {
-    var onStop: (() -> Void)?
-    /// Total dictation window in seconds (matches the host's `sessionMaxSeconds`), for the ring.
-    private let windowSeconds: Double = 45
-
-    private let brand  = UIColor(red: 0.486, green: 0.361, blue: 1.0, alpha: 1)
-    private let amber  = UIColor(red: 1.0, green: 0.69, blue: 0.13, alpha: 1)
-    private let danger = UIColor(red: 1.0, green: 0.30, blue: 0.30, alpha: 1)
-
-    private let waveBox = UIView()
-    private var bars: [CALayer] = []
-    private let timerButton = UIButton(type: .custom)
-    private let numLabel = UILabel()
-    private let glyphLabel = UILabel()
-    private let ringTrack = CAShapeLayer()
-    private let ringProg = CAShapeLayer()
-    private let bodyBox = UIView()
-    private let tagLabel = UILabel()
-    private let textView = UITextView()   // scrollable so long dictations auto-scroll to the newest text
-
-    private var link: CADisplayLink?
-    private var isDark = true
-    private var accent: UIColor = .white
-    private var stopped = false
-    private var level: CGFloat = 0        // eased waveform amplitude (0…1)
-    private var targetLevel: CGFloat = 0  // latest real mic level from the app
-
-    override init(frame: CGRect) { super.init(frame: frame); build() }
-    required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
-
-    private func build() {
-        layer.cornerRadius = 13
-        clipsToBounds = true
-        translatesAutoresizingMaskIntoConstraints = false
-
-        waveBox.translatesAutoresizingMaskIntoConstraints = false
-        waveBox.layer.cornerRadius = 12
-        addSubview(waveBox)
-
-        timerButton.translatesAutoresizingMaskIntoConstraints = false
-        timerButton.layer.cornerRadius = 16
-        timerButton.backgroundColor = danger
-        timerButton.addTarget(self, action: #selector(stopTapped), for: .touchUpInside)
-        numLabel.translatesAutoresizingMaskIntoConstraints = false
-        numLabel.font = .systemFont(ofSize: 20, weight: .heavy)
-        numLabel.textColor = .white
-        numLabel.text = "45"   // initial value; render() overwrites with the live countdown (matches windowSeconds)
-        glyphLabel.translatesAutoresizingMaskIntoConstraints = false
-        glyphLabel.font = .systemFont(ofSize: 17, weight: .bold)
-        glyphLabel.textColor = .white
-        glyphLabel.text = "▶"
-        glyphLabel.isHidden = true
-        timerButton.addSubview(numLabel)
-        timerButton.addSubview(glyphLabel)
-        for l in [ringTrack, ringProg] {
-            l.fillColor = UIColor.clear.cgColor
-            l.lineWidth = 3.5
-            l.lineCap = .round
-            layer.addSublayer(l) // added to panel layer; positioned over the button
-        }
-        ringProg.strokeColor = UIColor.white.cgColor
-        addSubview(timerButton)
-
-        bodyBox.translatesAutoresizingMaskIntoConstraints = false
-        bodyBox.layer.cornerRadius = 12
-        bodyBox.clipsToBounds = true
-        addSubview(bodyBox)
-
-        tagLabel.translatesAutoresizingMaskIntoConstraints = false
-        tagLabel.font = .systemFont(ofSize: 11, weight: .bold)
-        tagLabel.text = "DICTATING"
-        bodyBox.addSubview(tagLabel)
-
-        textView.translatesAutoresizingMaskIntoConstraints = false
-        textView.font = .systemFont(ofSize: 18, weight: .regular)
-        textView.isEditable = false
-        textView.isSelectable = false
-        textView.isScrollEnabled = true
-        textView.showsVerticalScrollIndicator = true
-        textView.backgroundColor = .clear
-        textView.textContainerInset = .zero
-        textView.textContainer.lineFragmentPadding = 0
-        bodyBox.addSubview(textView)
-
-        NSLayoutConstraint.activate([
-            waveBox.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            waveBox.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            waveBox.heightAnchor.constraint(equalToConstant: 46),
-            waveBox.trailingAnchor.constraint(equalTo: timerButton.leadingAnchor, constant: -8),
-
-            timerButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            timerButton.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            timerButton.widthAnchor.constraint(equalToConstant: 58),
-            timerButton.heightAnchor.constraint(equalToConstant: 46),
-            numLabel.centerXAnchor.constraint(equalTo: timerButton.centerXAnchor),
-            numLabel.centerYAnchor.constraint(equalTo: timerButton.centerYAnchor),
-            glyphLabel.centerXAnchor.constraint(equalTo: timerButton.centerXAnchor),
-            glyphLabel.centerYAnchor.constraint(equalTo: timerButton.centerYAnchor),
-
-            bodyBox.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            bodyBox.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            bodyBox.topAnchor.constraint(equalTo: waveBox.bottomAnchor, constant: 8),
-            bodyBox.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
-
-            tagLabel.leadingAnchor.constraint(equalTo: bodyBox.leadingAnchor, constant: 15),
-            tagLabel.topAnchor.constraint(equalTo: bodyBox.topAnchor, constant: 12),
-            textView.leadingAnchor.constraint(equalTo: bodyBox.leadingAnchor, constant: 15),
-            textView.trailingAnchor.constraint(equalTo: bodyBox.trailingAnchor, constant: -15),
-            textView.topAnchor.constraint(equalTo: tagLabel.bottomAnchor, constant: 6),
-            textView.bottomAnchor.constraint(equalTo: bodyBox.bottomAnchor, constant: -10),
-        ])
-
-        // waveform bars
-        for _ in 0..<26 {
-            let b = CALayer()
-            b.cornerRadius = 1.5
-            b.backgroundColor = brand.cgColor
-            waveBox.layer.addSublayer(b)
-            bars.append(b)
-        }
-    }
-
-    @objc private func stopTapped() { onStop?() }
-
-    /// Apply theme + kick off the waveform; call when the panel appears.
-    func show(isDark: Bool) {
-        self.isDark = isDark
-        stopped = false
-        waveBox.backgroundColor = isDark ? UIColor(white: 1, alpha: 0.05) : UIColor(white: 0, alpha: 0.05)
-        bodyBox.backgroundColor = isDark ? UIColor(white: 1, alpha: 0.035) : UIColor(white: 0, alpha: 0.03)
-        tagLabel.textColor = isDark ? UIColor(white: 1, alpha: 0.28) : UIColor(white: 0, alpha: 0.24)
-        textView.textColor = isDark ? .white : .black
-        ringTrack.strokeColor = (isDark ? UIColor(white: 1, alpha: 0.2) : UIColor(white: 0, alpha: 0.14)).cgColor
-        if link == nil {
-            let dl = CADisplayLink(target: self, selector: #selector(tick))
-            dl.preferredFramesPerSecond = 30
-            dl.add(to: .main, forMode: .common)
-            link = dl
-        }
-    }
-
-    func hide() { link?.invalidate(); link = nil }
-    deinit { link?.invalidate() }
-
-    // CADisplayLink retains its target; drop it when we leave the window so the
-    // keyboard VC can deallocate cleanly (no lingering tick, no retain cycle).
-    override func willMove(toWindow newWindow: UIWindow?) {
-        super.willMove(toWindow: newWindow)
-        if newWindow == nil { hide() }
-    }
-
-    /// Feed the live data (called ~8Hz by the keyboard). `remaining` is the ~45s countdown
-    /// (the keyboard tier caps each stretch before iOS's background CPU limit); at ≤0 the panel
-    /// flips to the "SAVED · TAP ▶ TO CONTINUE" rest state. `level` drives the real waveform.
-    func render(remaining: Double, transcript: String, level: CGFloat) {
-        targetLevel = max(0, min(1, level))
-        let clamped = max(0, remaining)
-        stopped = clamped <= 0.2
-        accent = clamped > 15 ? brand : (clamped > 5 ? amber : danger)
-
-        if stopped {
-            numLabel.isHidden = true; glyphLabel.isHidden = false
-            glyphLabel.text = "▶"
-            timerButton.backgroundColor = brand
-            ringProg.strokeEnd = 0
-            tagLabel.text = "SAVED · TAP ▶ TO CONTINUE"
-            tagLabel.textColor = isDark ? UIColor(white: 1, alpha: 0.28) : UIColor(white: 0, alpha: 0.24)
-        } else {
-            numLabel.isHidden = false; glyphLabel.isHidden = true
-            numLabel.text = String(Int(ceil(clamped)))
-            timerButton.backgroundColor = danger
-            ringProg.strokeColor = accent.cgColor
-            ringProg.strokeEnd = CGFloat(min(1, clamped / windowSeconds))
-            tagLabel.text = clamped > 5 ? "DICTATING" : "FINISH YOUR SENTENCE"
-            tagLabel.textColor = clamped > 5 ? (isDark ? UIColor(white: 1, alpha: 0.28) : UIColor(white: 0, alpha: 0.24)) : accent
-        }
-
-        let shown = transcript.isEmpty && !stopped ? "Listening…" : transcript
-        if textView.text != shown {
-            textView.text = shown
-            // Auto-scroll to the newest text at the bottom so long dictations stay visible.
-            textView.layoutIfNeeded()
-            let maxOffset = max(0, textView.contentSize.height - textView.bounds.height)
-            textView.setContentOffset(CGPoint(x: 0, y: maxOffset), animated: false)
-        }
-        textView.alpha = (transcript.isEmpty && !stopped) ? 0.4 : 1
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        // ring hugs the rounded-rect timer button (outset a few pt); drains via strokeEnd
-        let rect = timerButton.frame.insetBy(dx: -4, dy: -4)
-        let path = UIBezierPath(roundedRect: rect, cornerRadius: 19).cgPath
-        ringTrack.path = path; ringProg.path = path
-        // waveform bars laid across waveBox
-        let n = bars.count
-        guard n > 0, waveBox.bounds.width > 0 else { return }
-        let gap: CGFloat = 3, bw: CGFloat = 3
-        let totalW = CGFloat(n) * bw + CGFloat(n - 1) * gap
-        var x = (waveBox.bounds.width - totalW) / 2
-        for b in bars {
-            b.frame = CGRect(x: x, y: waveBox.bounds.midY - 3, width: bw, height: 6)
-            x += bw + gap
-        }
-    }
-
-    private var t: CGFloat = 0
-    @objc private func tick() {
-        t += 0.6
-        level += (targetLevel - level) * 0.25   // ease toward the latest real mic level
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        let midY = waveBox.bounds.midY
-        for (i, b) in bars.enumerated() {
-            let h: CGFloat
-            if stopped { h = 4 }
-            else {
-                // Amplitude tracks REAL speech: near-flat when quiet, tall when loud.
-                let s = abs(sin(Double(t) * 0.30 + Double(i) * 0.5))
-                h = 4 + CGFloat(s) * (level * 18)
-            }
-            b.frame = CGRect(x: b.frame.minX, y: midY - h/2, width: b.frame.width, height: max(4, h))
-            b.backgroundColor = (stopped ? UIColor(white: isDark ? 1 : 0, alpha: 0.28) : accent).cgColor
-        }
-        CATransaction.commit()
-    }
-}
-
 /// The VibeFlow keyboard — a fast system-style QWERTY keyboard. The space bar reads
 /// "VibeFlow" and a brand-coloured mic key starts voice dictation.
 ///
@@ -308,27 +72,15 @@ final class KeyboardViewController: UIInputViewController {
     private enum FlowMicState { case idle, listening, processing }
     private var flowMicState: FlowMicState = .idle
     private var lastFlowInserted = ""
-
-    // MARK: In-keyboard live dictation (replaces the old background Flow Session)
-    private var dictation: KeyboardDictation?
-    private var dictating = false
-    /// The text this dictation session has typed so far — diffed against each new partial
-    /// so we only delete/insert the part that actually changed (live, revising insertion).
-    private var dictatedText = ""
-    /// Whether we still owe a leading space before the first dictated word (so a new
-    /// dictation doesn't collide with existing text in the field).
-    private var dictationNeedsLeadingSpace = false
-    /// Transient one-line hint shown in the strip (e.g. a mic/permission error).
-    private var micHint: String?
-    /// The ~50s window: a thin bar fills over this time, then the mic auto-stops.
-    private let dictationCapSeconds: TimeInterval = 50
-    private var capTimer: Timer?
-    private var capBar: UIView?
-    private var capBarWidth: NSLayoutConstraint?
     /// Failsafe: if the app doesn't answer a toggle quickly, it's dead — hop instead.
     private var toggleAckTimer: Timer?
     /// Auto-dismisses info/error lines in the strip.
     private var errorClearTimer: Timer?
+
+    /// The ~45s dictation countdown line: fills left→right while recording, synced to the
+    /// app's flow_session_deadline_ts; the mic auto-stops when it reaches the end.
+    private var capBar: UIView?
+    private var capBarWidth: NSLayoutConstraint?
 
     // iOS's built-in spell/prediction engine — powers live suggestions + autocorrect.
     private let textChecker = UITextChecker()
@@ -360,9 +112,6 @@ final class KeyboardViewController: UIInputViewController {
     private var lastShiftTap: Date = .distantPast
     private var lastSpaceTap: Date = .distantPast
     private var backspaceTimer: Timer?
-    /// True right after a suggestion-accept inserted a trailing space — typing
-    /// punctuation next swallows it ("word ." → "word. ").
-    private var autoSpacePending = false
 
     /// Spell-check + strip rebuild are deferred off the keystroke path — doing them
     /// synchronously per key made fast typing drop letters.
@@ -458,10 +207,6 @@ final class KeyboardViewController: UIInputViewController {
     private var letterButtons: [KeyButton] = []   // a–z keys, re-titled on shift
     private var shiftButton: KeyButton?
     private var topMicButton: KeyButton?
-    /// The full-screen recording panel (live transcript + countdown), shown over the
-    /// keys while dictating. `panelTimer` feeds it live data from the App Group.
-    private var recordingPanel: RecordingPanelView?
-    private var panelTimer: Timer?
     private var built = false
 
     // Key-press preview balloon (the character pop-up everyone expects).
@@ -491,16 +236,11 @@ final class KeyboardViewController: UIInputViewController {
         built = true
         loadLearnedWords()
         loadLearningState()
-        // Dictation now runs in-process (KeyboardDictation) — no App-Group result/status
-        // observers, so a stale background session can never inject or overwrite text here.
+        registerFlowResultObserver()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        // Keyboard dismissed / switched away mid-dictation — stop the mic so the engine,
-        // recognition task and .record audio session don't leak (lingering orange mic
-        // indicator, other audio stuck ducked).
-        if dictating { stopDictation() }
         persistLearningState()
     }
 
@@ -515,33 +255,38 @@ final class KeyboardViewController: UIInputViewController {
         super.viewWillAppear(animated)
         recordKeyboardState()
         guard built else { return }
+        autoInsertIfReturned()
         loadLearnedWords()
-        // In-keyboard dictation lives entirely in this process, so the mic is idle whenever
-        // the keyboard (re)appears — unless a dictation this instance started is still live.
-        flowMicState = dictating ? .listening : .idle
+        // Reflect the LIVE flow state instead of forcing idle — during a long
+        // dictation the user may switch fields / the keyboard may relaunch, and an
+        // idle-looking mic invited a tap that actually STOPPED the live recording.
+        if flowSessionAlive {
+            switch groupString("kbd_flow_status") ?? "" {
+            case "listening": flowMicState = .listening
+            case "processing": flowMicState = .processing
+            default: flowMicState = .idle
+            }
+        } else {
+            flowMicState = .idle
+        }
         applyMicAppearance()
+        // Also resume the countdown line: the app posts "listening" only once per
+        // utterance, so a mid-dictation relaunch/field-switch never gets a fresh ping —
+        // rebuild the bar from flow_session_deadline_ts. Deferred so layout (and thus
+        // view.bounds.width) is resolved before the fill animation is computed.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if self.flowMicState == .listening { self.startCountdownBar() } else { self.hideCountdownBar() }
+        }
         updateSuggestions()
         updateShiftForContext()
     }
 
     /// Report to the app (via the App Group) that the keyboard has run and whether
     /// it currently has Full Access — powers the guided setup screen's live checks.
-    ///
-    /// The app reads these cross-process via `CFPreferencesCopyAppValue` on the App
-    /// Group domain. A plain `UserDefaults(suiteName:)` write from this extension isn't
-    /// reliably visible to that read (separate cache, no forced flush), which left the
-    /// setup screen's "Keyboard active" / "Full Access" checks stuck grey even when the
-    /// keyboard was clearly running. Mirror the writes through CFPreferences on the same
-    /// domain and force a sync so the app sees them immediately.
     private func recordKeyboardState() {
-        let fa = hasFullAccess ? "true" : "false"
         store?.set("true", forKey: "kbd_installed")
-        store?.set(fa, forKey: "kbd_full_access")
-        store?.synchronize()
-
-        CFPreferencesSetAppValue("kbd_installed" as CFString, "true" as CFString, appGroup as CFString)
-        CFPreferencesSetAppValue("kbd_full_access" as CFString, fa as CFString, appGroup as CFString)
-        CFPreferencesAppSynchronize(appGroup as CFString)
+        store?.set(hasFullAccess ? "true" : "false", forKey: "kbd_full_access")
     }
 
     override func traitCollectionDidChange(_ previous: UITraitCollection?) {
@@ -601,8 +346,8 @@ final class KeyboardViewController: UIInputViewController {
             topBar.heightAnchor.constraint(equalToConstant: 44),
         ])
 
-        // Thin dictation-countdown line: hidden until the mic starts, then fills left→right
-        // over ~50s so you can see when it will auto-stop.
+        // Thin dictation-countdown line: fills left→right over ~45s while recording,
+        // then the mic auto-stops (synced to flow_session_deadline_ts).
         let bar = UIView()
         bar.translatesAutoresizingMaskIntoConstraints = false
         bar.backgroundColor = brand
@@ -686,8 +431,21 @@ final class KeyboardViewController: UIInputViewController {
         case .listening:  title = "● Listening — speak, tap 🎤 to finish"
         case .processing: title = "✨ Working on your words…"
         case .idle:
-            if let hint = micHint {
-                title = "💬 \(hint)"
+            let status = groupString("kbd_flow_status") ?? ""
+            if status.hasPrefix("error") {
+                // Friendly info line, auto-clears after a few seconds.
+                let detail = status.replacingOccurrences(of: "error: ", with: "")
+                title = "💬 \(detail)"
+                errorClearTimer?.invalidate()
+                errorClearTimer = Timer.scheduledTimer(withTimeInterval: 3.5, repeats: false) { [weak self] _ in
+                    // Only clear if an error is STILL the live status — the user may
+                    // have retried ("listening"/"processing"), and wiping that broke
+                    // the status-keyed delivery + the toggle-ack handshake.
+                    if (self?.groupString("kbd_flow_status") ?? "").hasPrefix("error") {
+                        self?.store?.set("", forKey: "kbd_flow_status")
+                    }
+                    self?.updateSuggestions()
+                }
             } else {
                 title = "🎙  Tap the mic and just speak"
             }
@@ -752,7 +510,6 @@ final class KeyboardViewController: UIInputViewController {
         guard !word.isEmpty else { return }
         for _ in 0..<(word as NSString).length { textDocumentProxy.deleteBackward() }
         textDocumentProxy.insertText(replacement + " ")
-        autoSpacePending = true // typing punctuation next swallows this space
         learnCommittedWord(replacement)
         updateShiftForContext()
         updateSuggestions()
@@ -803,7 +560,6 @@ final class KeyboardViewController: UIInputViewController {
             rowsStack.addArrangedSubview(lastEmojiRow)
         }
         rowsStack.addArrangedSubview(functionRow())
-        updateShiftForContext() // e.g. ". " typed on the ?123 page → ABC arms shift
         applyShiftAppearance()
     }
 
@@ -1049,9 +805,6 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func spaceTapped() {
-        endDictationForManualInput()
-        autoSpacePending = false
-        capitalizeLoneI()
         autocorrectCurrentWord()
         learnCommittedWord(currentWord())
         let now = Date()
@@ -1097,7 +850,6 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     @objc private func backspaceDown() {
-        endDictationForManualInput()
         textDocumentProxy.deleteBackward()
         backspaceTimer?.invalidate()
         backspaceTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
@@ -1113,19 +865,6 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func insert(_ text: String) {
-        endDictationForManualInput()
-        // Punctuation right after an accepted suggestion swallows the auto-space:
-        // "word ‸" + "." → "word. " (system-keyboard behavior), not "word .".
-        if autoSpacePending, text.count == 1, ".,!?;:".contains(text),
-           (textDocumentProxy.documentContextBeforeInput ?? "").hasSuffix(" ") {
-            autoSpacePending = false
-            textDocumentProxy.deleteBackward()
-            textDocumentProxy.insertText(text + " ")
-            updateShiftForContext()
-            scheduleSuggestions()
-            return
-        }
-        autoSpacePending = false
         // A single non-letter key (punctuation, return) ends the word in progress —
         // learn it exactly as the user left it.
         if page == .letters, text.count == 1, let ch = text.first, !ch.isLetter, ch != "'" {
@@ -1137,40 +876,12 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func updateShiftForContext() {
-        // NOTE: no `page == .letters` guard — the period key lives on the ?123 page,
-        // and gating on the page meant ". " typed there never armed the shift (the
-        // "no caps after full stop" bug). State updates on every page; rendering is
-        // page-guarded inside applyShiftAppearance.
-        guard shift != .locked else { return }
+        guard shift != .locked, page == .letters else { return }
         let before = textDocumentProxy.documentContextBeforeInput ?? ""
-        let want: ShiftState
-        // Respect the host field's autocapitalization (like the system keyboard):
-        // email/username/code fields ask for none — forcing caps there is hostile.
-        switch textDocumentProxy.autocapitalizationType ?? .sentences {
-        case .none:
-            want = .off
-        case .allCharacters:
-            want = .on
-        case .words:
-            want = (before.isEmpty || before.hasSuffix(" ") || before.hasSuffix("\n")) ? .on : .off
-        default: // .sentences
-            want = (before.isEmpty || before.hasSuffix("\n")
-                || before.hasSuffix(". ") || before.hasSuffix("! ") || before.hasSuffix("? ")) ? .on : .off
-        }
+        let cap = before.isEmpty || before.hasSuffix("\n")
+            || before.hasSuffix(". ") || before.hasSuffix("! ") || before.hasSuffix("? ")
+        let want: ShiftState = cap ? .on : .off
         if want != shift { shift = want; applyShiftAppearance() }
-    }
-
-    /// Standalone "i" becomes "I" on space — the classic system-keyboard fix that
-    /// the 3-letter autocorrect floor misses.
-    private func capitalizeLoneI() {
-        guard !refusedCorrections.contains("i") else { return }
-        let before = textDocumentProxy.documentContextBeforeInput ?? ""
-        guard before.hasSuffix("i") else { return }
-        let prior = before.dropLast().last
-        if prior == nil || !(prior!.isLetter || prior! == "'") {
-            textDocumentProxy.deleteBackward()
-            textDocumentProxy.insertText("I")
-        }
     }
 
     // MARK: - Mic → dictation flow
@@ -1191,116 +902,37 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func micTapped() {
-        if dictating { stopDictation() } else { startDictation() }
-    }
-
-    /// Begin live in-keyboard dictation — recognition runs right here and types words into
-    /// the field as they're recognised, like the system mic.
-    private func startDictation() {
-        guard hasFullAccess else { showMicHint("Turn on Allow Full Access to use the mic"); return }
-        // Add a leading space before the first word if the field already ends in a word.
-        let before = textDocumentProxy.documentContextBeforeInput ?? ""
-        if let last = before.last {
-            dictationNeedsLeadingSpace = !last.isWhitespace && !"\n([{\"'".contains(last)
-        } else {
-            dictationNeedsLeadingSpace = false
+        // Flow Session alive (Dynamic Island showing)? Record right here — no hop.
+        if flowSessionAlive {
+            let wasIdle = flowMicState == .idle
+            flowMicState = wasIdle ? .listening : .processing
+            applyMicAppearance()
+            CFNotificationCenterPostNotification(
+                CFNotificationCenterGetDarwinNotifyCenter(),
+                CFNotificationName(flowToggleName as CFString),
+                nil, nil, true
+            )
+            // Failsafe: the island can outlive a force-quit app (zombie pill). If the
+            // app doesn't ack a record-start quickly, it's dead — hop to restart it.
+            if wasIdle {
+                toggleAckTimer?.invalidate()
+                toggleAckTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
+                    guard let self, self.flowMicState == .listening else { return }
+                    if self.groupString("kbd_flow_status") != "listening" {
+                        self.flowMicState = .idle
+                        self.applyMicAppearance()
+                        self.armed = true
+                        self.armedSnapshot = self.latest()
+                        self.openApp()
+                    }
+                }
+            }
+            return
         }
-        dictatedText = ""
-        let localeId = groupString("kbd_lang") ?? "en-US"
-        let d = KeyboardDictation(localeId: localeId)
-        d.onResult = { [weak self] text, _ in self?.applyLiveTranscript(text) }
-        d.onEnd = { [weak self] reason in self?.dictationEnded(reason: reason) }
-        if let err = d.start() { showMicHint(err); return }
-        dictation = d
-        dictating = true
-        micHint = nil
-        flowMicState = .listening
-        applyMicAppearance()
-        startCapBar()
-        updateSuggestions()
-    }
-
-    /// Stop the mic (from a tap or the ~50s cap). `dictationEnded` does the cleanup.
-    private func stopDictation() { dictation?.stop() }
-
-    /// The user reached for the keys mid-dictation. Stop dictating (committing whatever is
-    /// already typed) so manual edits can't desync applyLiveTranscript's diff and delete
-    /// into the user's existing text. `dictating` is cleared synchronously so no late
-    /// partial touches the field after this returns.
-    private func endDictationForManualInput() {
-        guard dictating else { return }
-        dictating = false
-        dictatedText = ""
-        stopDictation()
-    }
-
-    private func dictationEnded(reason: String?) {
-        dictating = false
-        dictation = nil
-        dictatedText = ""
-        stopCapBar()
-        flowMicState = .idle
-        applyMicAppearance()
-        if let reason, !reason.isEmpty { showMicHint(reason) }
-        updateSuggestions()
-    }
-
-    /// Type the newest partial transcript by diffing against what we've already typed this
-    /// session: delete only the changed tail, insert the rest (live, revising insertion).
-    private func applyLiveTranscript(_ text: String) {
-        guard dictating, view.window != nil else { return }
-        if dictationNeedsLeadingSpace, dictatedText.isEmpty, !text.isEmpty {
-            textDocumentProxy.insertText(" ")
-            dictationNeedsLeadingSpace = false
-        }
-        if text == dictatedText { return }
-        let oldChars = Array(dictatedText)
-        let newChars = Array(text)
-        var common = 0
-        let maxCommon = min(oldChars.count, newChars.count)
-        while common < maxCommon && oldChars[common] == newChars[common] { common += 1 }
-        for _ in 0..<(oldChars.count - common) { textDocumentProxy.deleteBackward() }
-        let tail = String(newChars[common...])
-        if !tail.isEmpty { textDocumentProxy.insertText(tail) }
-        dictatedText = text
-    }
-
-    private func showMicHint(_ text: String) {
-        micHint = text
-        updateSuggestions()
-        errorClearTimer?.invalidate()
-        errorClearTimer = Timer.scheduledTimer(withTimeInterval: 3.5, repeats: false) { [weak self] _ in
-            self?.micHint = nil
-            self?.updateSuggestions()
-        }
-    }
-
-    // MARK: ~50s cap bar (fills over the window, then auto-stops the mic)
-
-    private func startCapBar() {
-        guard let bar = capBar, let w = capBarWidth else { return }
-        capTimer?.invalidate()
-        bar.layer.removeAllAnimations()
-        bar.isHidden = false
-        w.constant = 0
-        view.layoutIfNeeded()
-        UIView.animate(withDuration: dictationCapSeconds, delay: 0, options: [.curveLinear]) {
-            w.constant = self.view.bounds.width
-            self.view.layoutIfNeeded()
-        }
-        capTimer = Timer.scheduledTimer(withTimeInterval: dictationCapSeconds, repeats: false) { [weak self] _ in
-            self?.stopDictation()
-        }
-    }
-
-    private func stopCapBar() {
-        capTimer?.invalidate()
-        capTimer = nil
-        guard let bar = capBar, let w = capBarWidth else { return }
-        bar.layer.removeAllAnimations()
-        w.constant = 0
-        bar.isHidden = true
-        view.layoutIfNeeded()
+        // Otherwise: the one-time hop that starts the session.
+        armed = true
+        armedSnapshot = latest()
+        openApp()
     }
 
     /// Mic key mirrors the real flow state: pulsing red while listening, orange
@@ -1338,56 +970,6 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    // MARK: - Recording panel (live transcript + countdown over the keys)
-
-    /// Show the panel while dictating (listening/processing) and hide it when idle so the
-    /// keys return. Drives a light timer that feeds live text + countdown from the App Group.
-    private func updateRecordingPanel() {
-        if flowMicState != .idle {
-            let panel: RecordingPanelView
-            if let p = recordingPanel { panel = p } else {
-                panel = RecordingPanelView()
-                panel.onStop = { [weak self] in self?.micTapped() }
-                view.addSubview(panel)
-                NSLayoutConstraint.activate([
-                    panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                    panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-                    panel.topAnchor.constraint(equalTo: view.topAnchor),
-                    panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-                ])
-                recordingPanel = panel
-            }
-            panel.backgroundColor = kbBackground
-            panel.isHidden = false
-            view.bringSubviewToFront(panel)
-            panel.show(isDark: isDark)
-            refreshPanel()
-            if panelTimer == nil {
-                panelTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
-                    self?.refreshPanel()
-                }
-            }
-        } else {
-            panelTimer?.invalidate(); panelTimer = nil
-            recordingPanel?.hide()
-            recordingPanel?.isHidden = true
-        }
-    }
-
-    /// Feed the panel one frame of the growing live transcript (published by the app as
-    /// `flow_live_full`), read under a cross-process sync (this runs ~8×/sec while recording).
-    private func refreshPanel() {
-        guard let panel = recordingPanel, !panel.isHidden else { return }
-        CFPreferencesAppSynchronize(appGroup as CFString)
-        func cf(_ k: String) -> String? {
-            (CFPreferencesCopyAppValue(k as CFString, appGroup as CFString) as? String) ?? store?.string(forKey: k)
-        }
-        let deadline = Double(cf("flow_session_deadline_ts") ?? "") ?? 0
-        let remaining = deadline > 0 ? (deadline - Date().timeIntervalSince1970 * 1000) / 1000 : 0
-        let level = CGFloat(Double(cf("flow_level") ?? "0") ?? 0)
-        panel.render(remaining: remaining, transcript: cf("flow_live_full") ?? "", level: level)
-    }
-
     /// Brief green confirmation when dictated text lands, then back to the LIVE
     /// state — a newer utterance may already be recording (forcing .idle here used
     /// to stomp it, and the next tap then stopped a live recording).
@@ -1404,7 +986,6 @@ final class KeyboardViewController: UIInputViewController {
             default: self.flowMicState = .idle
             }
             self.applyMicAppearance()
-            self.updateRecordingPanel()   // hide the panel once idle; keep it while still live
         }
     }
 
@@ -1483,10 +1064,38 @@ final class KeyboardViewController: UIInputViewController {
         default:           flowMicState = .idle   // includes "error: …"
         }
         applyMicAppearance()
-        updateRecordingPanel()
+        if flowMicState == .listening { startCountdownBar() } else { hideCountdownBar() }
         if status.hasPrefix("error"), currentWord().isEmpty {
             showIdleSuggestions()          // surface the error text in the strip
         }
+    }
+
+    /// Show the countdown line and fill it to the app's ~45s deadline; the app auto-stops
+    /// the mic at that same moment, so the line reaching the end == recording ending.
+    private func startCountdownBar() {
+        guard let bar = capBar, let w = capBarWidth else { return }
+        let total = 45.0
+        let deadlineMs = Double(groupString("flow_session_deadline_ts") ?? "") ?? 0
+        let remaining = deadlineMs > 0 ? (deadlineMs / 1000 - Date().timeIntervalSince1970) : total
+        guard remaining > 0.5 else { hideCountdownBar(); return }
+        bar.layer.removeAllAnimations()
+        bar.isHidden = false
+        let elapsedFrac = CGFloat(max(0, min(1, (total - remaining) / total)))
+        view.layoutIfNeeded()
+        w.constant = view.bounds.width * elapsedFrac
+        view.layoutIfNeeded()
+        UIView.animate(withDuration: remaining, delay: 0, options: [.curveLinear, .beginFromCurrentState]) {
+            w.constant = self.view.bounds.width
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    private func hideCountdownBar() {
+        guard let bar = capBar, let w = capBarWidth else { return }
+        bar.layer.removeAllAnimations()
+        w.constant = 0
+        bar.isHidden = true
+        view.layoutIfNeeded()
     }
 
     /// Bundle id of the app hosting the keyboard (WhatsApp etc.), so VibeFlow can
@@ -1553,129 +1162,5 @@ final class KeyboardViewController: UIInputViewController {
            let map = try? JSONDecoder().decode([String: [String]].self, from: data) {
             bigrams = map
         }
-    }
-}
-
-// MARK: - In-keyboard live dictation
-//
-// Runs ENTIRELY inside the keyboard extension: one AVAudioEngine + one on-device
-// SFSpeechRecognizer, reporting partial results so the keyboard can type them into the
-// field live (like the system mic). It stops itself on the recognizer's final result or an
-// error; the caller also caps it at ~50s. No background session, no App-Group round-trip —
-// the old architecture that dropped text is gone. Needs "Allow Full Access" + mic/speech
-// permission (granted once in the VibeFlow app).
-final class KeyboardDictation {
-    private let recognizer: SFSpeechRecognizer?
-    private let engine = AVAudioEngine()
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var task: SFSpeechRecognitionTask?
-    private(set) var running = false
-
-    /// (fullTranscript, isFinal) — always delivered on the MAIN thread.
-    var onResult: ((String, Bool) -> Void)?
-    /// Recognition ended — MAIN thread. `reason` nil = clean; non-nil short user message.
-    var onEnd: ((String?) -> Void)?
-
-    init(localeId: String) {
-        recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeId)) ?? SFSpeechRecognizer()
-    }
-
-    /// Begins listening. Returns a short error string if it couldn't start, else nil.
-    func start() -> String? {
-        guard !running else { return nil }
-        guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
-            return "Open VibeFlow to allow Speech Recognition"
-        }
-        guard AVAudioSession.sharedInstance().recordPermission == .granted else {
-            return "Open VibeFlow to allow the Microphone"
-        }
-        guard let recognizer, recognizer.isAvailable else { return "Speech is unavailable right now" }
-
-        let session = AVAudioSession.sharedInstance()
-        do {
-            // Wispr Flow's keyboard session, per 1.0.37 which fixed exactly this 'what'
-            // (2003329396) engine-start error: PlayAndRecord + .defaultToSpeaker, and
-            // crucially NO .duckOthers — .duckOthers is what makes engine.start() throw
-            // 'what' in a keyboard extension.
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
-            try session.setActive(true)
-        } catch {
-            NSLog("[VibeFlow.kbd] audio session failed: %@", String(describing: error))
-            return "Audio: \(error.localizedDescription)"
-        }
-
-        let req = SFSpeechAudioBufferRecognitionRequest()
-        req.shouldReportPartialResults = true
-        if #available(iOS 16, *) { req.addsPunctuation = true }
-        if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
-        request = req
-
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        // installTap raises an UNCATCHABLE Obj-C exception on an invalid (0 sample-rate /
-        // 0-channel) format, which the audio route can briefly report right after the session
-        // activates. Validate first and fail gracefully instead of crashing the keyboard.
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            request = nil
-            try? session.setActive(false)
-            return "Mic isn't ready — tap again"
-        }
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            self?.request?.append(buffer)
-        }
-        engine.prepare()
-        do {
-            try engine.start()
-        } catch {
-            input.removeTap(onBus: 0)
-            request = nil
-            try? session.setActive(false)
-            NSLog("[VibeFlow.kbd] engine.start failed: %@", String(describing: error))
-            return "Engine: \(error.localizedDescription)"
-        }
-
-        task = recognizer.recognitionTask(with: req) { [weak self] result, error in
-            guard let self else { return }
-            if let result {
-                let text = result.bestTranscription.formattedString
-                let isFinal = result.isFinal
-                DispatchQueue.main.async { self.onResult?(text, isFinal) }
-                if isFinal { self.finish(reason: nil) }
-            } else if error != nil {
-                // A mid-stream error still leaves whatever we've already typed in place.
-                self.finish(reason: nil)
-            }
-        }
-        running = true
-        return nil
-    }
-
-    /// Stop listening (idempotent). Fires `onEnd`.
-    func stop() { finish(reason: nil) }
-
-    private func finish(reason: String?) {
-        DispatchQueue.main.async {
-            guard self.running else { return }
-            self.running = false
-            self.engine.inputNode.removeTap(onBus: 0)
-            if self.engine.isRunning { self.engine.stop() }
-            self.request?.endAudio()
-            self.task?.finish()
-            self.request = nil
-            self.task = nil
-            try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
-            self.onEnd?(reason)
-        }
-    }
-
-    deinit {
-        // Backstop: if the owner is deallocated mid-recording (keyboard torn down without a
-        // clean stop), don't leave the engine/tap/session running.
-        guard running else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        if engine.isRunning { engine.stop() }
-        request?.endAudio()
-        task?.cancel()
-        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
     }
 }
