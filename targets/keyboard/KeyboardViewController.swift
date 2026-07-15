@@ -497,6 +497,10 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        // Keyboard dismissed / switched away mid-dictation — stop the mic so the engine,
+        // recognition task and .record audio session don't leak (lingering orange mic
+        // indicator, other audio stuck ducked).
+        if dictating { stopDictation() }
         persistLearningState()
     }
 
@@ -1045,6 +1049,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func spaceTapped() {
+        endDictationForManualInput()
         autoSpacePending = false
         capitalizeLoneI()
         autocorrectCurrentWord()
@@ -1092,6 +1097,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     @objc private func backspaceDown() {
+        endDictationForManualInput()
         textDocumentProxy.deleteBackward()
         backspaceTimer?.invalidate()
         backspaceTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
@@ -1107,6 +1113,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func insert(_ text: String) {
+        endDictationForManualInput()
         // Punctuation right after an accepted suggestion swallows the auto-space:
         // "word ‸" + "." → "word. " (system-keyboard behavior), not "word .".
         if autoSpacePending, text.count == 1, ".,!?;:".contains(text),
@@ -1215,6 +1222,17 @@ final class KeyboardViewController: UIInputViewController {
 
     /// Stop the mic (from a tap or the ~50s cap). `dictationEnded` does the cleanup.
     private func stopDictation() { dictation?.stop() }
+
+    /// The user reached for the keys mid-dictation. Stop dictating (committing whatever is
+    /// already typed) so manual edits can't desync applyLiveTranscript's diff and delete
+    /// into the user's existing text. `dictating` is cleared synchronously so no late
+    /// partial touches the field after this returns.
+    private func endDictationForManualInput() {
+        guard dictating else { return }
+        dictating = false
+        dictatedText = ""
+        stopDictation()
+    }
 
     private func dictationEnded(reason: String?) {
         dictating = false
@@ -1587,6 +1605,14 @@ final class KeyboardDictation {
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
+        // installTap raises an UNCATCHABLE Obj-C exception on an invalid (0 sample-rate /
+        // 0-channel) format, which the audio route can briefly report right after the session
+        // activates. Validate first and fail gracefully instead of crashing the keyboard.
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            request = nil
+            try? session.setActive(false)
+            return "Mic isn't ready — tap again"
+        }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             self?.request?.append(buffer)
         }
@@ -1632,5 +1658,16 @@ final class KeyboardDictation {
             try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
             self.onEnd?(reason)
         }
+    }
+
+    deinit {
+        // Backstop: if the owner is deallocated mid-recording (keyboard torn down without a
+        // clean stop), don't leave the engine/tap/session running.
+        guard running else { return }
+        engine.inputNode.removeTap(onBus: 0)
+        if engine.isRunning { engine.stop() }
+        request?.endAudio()
+        task?.cancel()
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
     }
 }
