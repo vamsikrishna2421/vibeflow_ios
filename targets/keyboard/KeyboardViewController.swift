@@ -1593,9 +1593,15 @@ final class KeyboardDictation {
 
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
+            // PROVEN config from 1.0.35 (which really did record in the keyboard extension):
+            // .playAndRecord/.default is what lets AVAudioEngine start in-process — .record
+            // /.measurement throws engine.start() here.
+            try session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers, .allowBluetooth])
             try session.setActive(true, options: [])
-        } catch { return "Couldn't start the mic (audio busy)" }
+        } catch {
+            NSLog("[VibeFlow.kbd] audio session failed: %@", String(describing: error))
+            return "Audio: \(error.localizedDescription)"
+        }
 
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
@@ -1623,7 +1629,8 @@ final class KeyboardDictation {
             input.removeTap(onBus: 0)
             request = nil
             try? session.setActive(false)
-            return "Couldn't start the mic"
+            NSLog("[VibeFlow.kbd] engine.start failed: %@", String(describing: error))
+            return "Engine: \(error.localizedDescription)"
         }
 
         task = recognizer.recognitionTask(with: req) { [weak self] result, error in
