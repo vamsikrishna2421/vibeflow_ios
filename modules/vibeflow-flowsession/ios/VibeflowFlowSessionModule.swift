@@ -362,7 +362,10 @@ public class VibeflowFlowSessionModule: Module {
     // speech. Self is captured STRONGLY so the rescue still runs if the module is
     // being deallocated (OnDestroy during a JS reload).
     let deliver = {
-      let joined = self.joinedTranscript()
+      // fullTranscript() (not joinedTranscript) — earlier finalized segments live in
+      // liveDelivered now that we no longer stream mid-utterance, so a mid-dictation
+      // teardown (Live Activity "End" / JS reload) must ship them too, not just the tail.
+      let joined = self.fullTranscript()
       self.finishUtterance(with: joined.isEmpty ? nil : joined)
     }
     if Thread.isMainThread { deliver() } else { DispatchQueue.main.async(execute: deliver) }
@@ -444,7 +447,9 @@ public class VibeflowFlowSessionModule: Module {
   private func startSegment() {
     guard utteranceActive else { return }
     guard let recognizer = makeRecognizer(), recognizer.isAvailable else {
-      let joined = joinedTranscript()
+      // fullTranscript() — bailing out mid-utterance must still deliver every segment
+      // already accumulated in liveDelivered, not just the current tail.
+      let joined = fullTranscript()
       finishUtterance(with: joined.isEmpty ? nil : joined)
       return
     }
@@ -570,13 +575,19 @@ public class VibeflowFlowSessionModule: Module {
     if !stopping, let segText = segmentTexts[seq], !segText.isEmpty {
       segmentTexts[seq] = nil
       if !liveDelivered.isEmpty { liveDelivered += " " }
-      liveDelivered += segText  // keep the full transcript growing for the live panel
-      flog("stream segment \(seq) len=\(segText.count)")
-      deliverUtterance(segText, live: true)
+      liveDelivered += segText  // accumulate; the FULL transcript is delivered once at stop
+      flog("accumulate segment \(seq) len=\(segText.count)")
+      // We deliberately do NOT stream this segment to the keyboard mid-utterance.
+      // The keyboard is fed through a single App-Group slot (latest_dictation), so
+      // multiple mid-utterance deliveries overwrote each other and only the LAST
+      // segment survived — the reported "middle of my dictation went missing" bug.
+      // Instead every segment lands in `liveDelivered` and finishUtterance ships the
+      // whole thing in one write. (A cross-process append-queue is the right answer
+      // for the future unlimited/streaming Pro tier; the 45s free tier doesn't need it.)
     }
     if stopping {
       if endedSegments.isSuperset(of: utteranceSeqs) {
-        let joined = joinedTranscript()
+        let joined = fullTranscript()
         finishUtterance(with: joined.isEmpty ? nil : joined)
       }
       return
@@ -589,7 +600,7 @@ public class VibeflowFlowSessionModule: Module {
     if lived < 1.5 && !gotText {
       fastFails += 1
       if fastFails >= 3 {
-        let joined = joinedTranscript()
+        let joined = fullTranscript()
         finishUtterance(with: joined.isEmpty ? nil : joined)
         return
       }
@@ -612,7 +623,7 @@ public class VibeflowFlowSessionModule: Module {
     DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
       guard let self, self.utteranceActive, self.utteranceGen == gen else { return }
       self.flog("stop watchdog fired — force-finishing")
-      let joined = self.joinedTranscript()
+      let joined = self.fullTranscript()
       self.finishUtterance(with: joined.isEmpty ? nil : joined)
     }
   }
@@ -635,6 +646,18 @@ public class VibeflowFlowSessionModule: Module {
       .map { $0.value.trimmingCharacters(in: .whitespaces) }
       .filter { !$0.isEmpty }
       .joined(separator: " ")
+  }
+
+  /// The COMPLETE utterance so far: every already-finalised segment (accumulated in
+  /// `liveDelivered`) plus the current un-finalised tail (`joinedTranscript`). This is
+  /// what stop delivers, so no segment is ever dropped.
+  private func fullTranscript() -> String {
+    let tail = joinedTranscript()
+    let combined: String
+    if liveDelivered.isEmpty { combined = tail }
+    else if tail.isEmpty { combined = liveDelivered }
+    else { combined = liveDelivered + " " + tail }
+    return combined.trimmingCharacters(in: .whitespaces)
   }
 
   private func finishUtterance(with text: String?) {
@@ -678,7 +701,7 @@ public class VibeflowFlowSessionModule: Module {
     // delivery) gates everything; utteranceGen additionally gates the SHARED
     // status string, which belongs to the newest utterance. Self is captured
     // STRONGLY so the rescue survives module teardown (JS reload mid-dictation).
-    // Deliver the final chunk — everything not already streamed mid-utterance.
+    // Deliver the COMPLETE accumulated transcript (every segment) in one write.
     deliverUtterance(text, live: false)
   }
 
