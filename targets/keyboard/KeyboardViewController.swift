@@ -1593,11 +1593,12 @@ final class KeyboardDictation {
 
         let session = AVAudioSession.sharedInstance()
         do {
-            // PROVEN config from 1.0.35 (which really did record in the keyboard extension):
-            // .playAndRecord/.default is what lets AVAudioEngine start in-process — .record
-            // /.measurement throws engine.start() here.
-            try session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers, .allowBluetooth])
-            try session.setActive(true, options: [])
+            // Wispr Flow's keyboard session, per 1.0.37 which fixed exactly this 'what'
+            // (2003329396) engine-start error: PlayAndRecord + .defaultToSpeaker, and
+            // crucially NO .duckOthers — .duckOthers is what makes engine.start() throw
+            // 'what' in a keyboard extension.
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setActive(true)
         } catch {
             NSLog("[VibeFlow.kbd] audio session failed: %@", String(describing: error))
             return "Audio: \(error.localizedDescription)"
