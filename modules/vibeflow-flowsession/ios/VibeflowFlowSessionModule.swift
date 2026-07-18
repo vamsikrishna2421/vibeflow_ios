@@ -38,12 +38,7 @@ public class VibeflowFlowSessionModule: Module {
   static let statusName = "com.vibeflow.flow.status"
 
   private var engine: AVAudioEngine?
-  // REAL playback keep-alive (ported from the proven 1.0.41 fix): an AVPlayer looping a
-  // non-zero inaudible tone via mediaplaybackd → iOS reports Playing:YES → the backgrounded
-  // app survives BETWEEN dictations. The old zero-volume engine node logged Playing:NO and
-  // got suspended, so the 2nd/3rd dictation found a dead session and bounced back to the app.
-  private var keepAlivePlayer: AVQueuePlayer?
-  private var keepAliveLooper: AVPlayerLooper?
+  private var player: AVAudioPlayerNode?
   private var active = false
 
   // Per-utterance recognition riding the always-on input tap, as a chain of
@@ -82,14 +77,10 @@ public class VibeflowFlowSessionModule: Module {
   /// slightly stale value only shifts rotation by one 0.5s tick — acceptable.
   private var lastVoiceAt: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
 
-  // Rotation tuning: prefer a ≥0.6s pause once a segment is MIN_SEGMENT old; never
-  // let a segment reach the recognizer's ~60s per-request cap.
-  // The on-device keyboard tier is hard-capped at `sessionMaxSeconds` (45s), which is
-  // safely under SFSpeech's ~60s single-request limit — so the whole dictation is ONE
-  // segment with NO rotation seam ("don't break it into two parts"). Rotation stays in
-  // the code (for a future unlimited tier) but its threshold sits ABOVE the cap, so it
-  // never arms while the 45s cap governs — even if the cap timer fires a little late
-  // under background throttling.
+  // The on-device keyboard tier is hard-capped at `sessionMaxSeconds` (45s), safely
+  // under SFSpeech's ~60s single-request limit — so the whole dictation is ONE segment
+  // with NO rotation seam ("don't break it into two parts"). Rotation stays for a future
+  // unlimited tier but its threshold sits above the cap, so it never arms under 45s.
   private let minSegmentSeconds: TimeInterval = 60
   private let hardCapSeconds: TimeInterval = 60
   private let quietGapSeconds: TimeInterval = 0.6
@@ -158,19 +149,12 @@ public class VibeflowFlowSessionModule: Module {
 
   private func startEngine() throws {
     let session = AVAudioSession.sharedInstance()
-    // Match Wispr Flow's container-app session ("PlayAndRecord_NoBluetooth_DefaultToSpeaker").
-    // Crucially NO .mixWithOthers: a mixable/ambient source is treated as SECONDARY and does
-    // NOT earn the uncapped background-audio treatment — we must be the PRIMARY active audio
-    // app for the keep-alive to hold across dictations.
-    try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+    try session.setCategory(.playAndRecord, mode: .default,
+                            options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth])
     try session.setActive(true)
 
     engine?.stop()
     engine = nil
-    // Tear down any prior keep-alive first (matches 1.0.41): reassert() revives the engine
-    // after an interruption and re-enters here, so without this the old AVQueuePlayer/looper
-    // would be orphaned and a second keep-alive would stack on top.
-    stopKeepAlive()
 
     let engine = AVAudioEngine()
     let input = engine.inputNode
@@ -191,64 +175,26 @@ public class VibeflowFlowSessionModule: Module {
       }
     }
 
-    engine.prepare()
-    try engine.start()
+    // Silent playback loop — keeps iOS treating us as an active audio app between
+    // utterances (recording alone can be reclaimed more aggressively).
+    let player = AVAudioPlayerNode()
+    engine.attach(player)
+    if let silentFormat = AVAudioFormat(standardFormatWithSampleRate: 8000, channels: 1),
+       let silence = AVAudioPCMBuffer(pcmFormat: silentFormat, frameCapacity: 8000) {
+      silence.frameLength = 8000
+      engine.connect(player, to: engine.mainMixerNode, format: silentFormat)
+      engine.mainMixerNode.outputVolume = 0
+      engine.prepare()
+      try engine.start()
+      player.scheduleBuffer(silence, at: nil, options: .loops)
+      player.play()
+    } else {
+      engine.prepare()
+      try engine.start()
+    }
     self.engine = engine
-
-    // Start the REAL playback keep-alive (see startKeepAlive). Failing there isn't fatal to
-    // recording — it just risks background suspension — so it continues rather than throws.
-    startKeepAlive()
+    self.player = player
     startHeartbeat()
-  }
-
-  /// Loop an inaudible, NON-ZERO tone through `AVPlayer` (which runs via mediaplaybackd) so
-  /// iOS sees a real background PLAYBACK session and flips us to `Playing:YES` — the thing
-  /// that (with the `audio` UIBackgroundMode) keeps the backgrounded app alive across
-  /// dictations. Built on the main run loop so AVPlayerLooper's KVO-driven gapless loop works.
-  private func startKeepAlive() {
-    guard let url = Self.silentLoopURL() else { return }
-    DispatchQueue.main.async {
-      let queue = AVQueuePlayer()
-      queue.volume = 0.06                    // inaudible at this content amplitude, but non-zero
-      let looper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: url))
-      queue.play()
-      self.keepAlivePlayer = queue
-      self.keepAliveLooper = looper
-    }
-  }
-
-  private func stopKeepAlive() {
-    DispatchQueue.main.async {
-      self.keepAliveLooper?.disableLooping()
-      self.keepAlivePlayer?.pause()
-      self.keepAlivePlayer?.removeAllItems()
-      self.keepAliveLooper = nil
-      self.keepAlivePlayer = nil
-    }
-  }
-
-  /// Build (once, then cache) a 1s inaudible-but-NON-ZERO tone in the temp dir to loop via
-  /// AVPlayer. Non-zero is load-bearing: mediaplaybackd reports `Playing:YES` only for a
-  /// stream carrying real signal — pure silence logs as `Playing:NO` and we get suspended.
-  private static func silentLoopURL() -> URL? {
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent("vf_keepalive_v2.caf")
-    if FileManager.default.fileExists(atPath: url.path) { return url }
-    guard let fmt = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1),
-          let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 44100) else { return nil }
-    buf.frameLength = 44100  // 1.0s, looped forever
-    if let ch = buf.floatChannelData?.pointee {
-      let n = Int(buf.frameLength)
-      for i in 0..<n {
-        ch[i] = 0.02 * sinf(2.0 * .pi * 110.0 * Float(i) / 44100.0)  // ~110Hz, ~-34dBFS content
-      }
-    }
-    do {
-      let file = try AVAudioFile(forWriting: url, settings: fmt.settings)
-      try file.write(from: buf)
-      return url
-    } catch {
-      return nil
-    }
   }
 
   /// Liveness beacon (see `heartbeatTimer`): refreshed every 2s while the session
@@ -287,9 +233,10 @@ public class VibeflowFlowSessionModule: Module {
     }
     if Thread.isMainThread { deliver() } else { DispatchQueue.main.async(execute: deliver) }
     stopHeartbeat()
-    stopKeepAlive()
+    player?.stop()
     engine?.inputNode.removeTap(onBus: 0)
     engine?.stop()
+    player = nil
     engine = nil
     active = false
     setFlag(false)

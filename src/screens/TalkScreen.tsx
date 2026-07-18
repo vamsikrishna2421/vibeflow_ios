@@ -961,20 +961,38 @@ function Waveform({ listening, level }: { listening: boolean; level: number }) {
   }, [level, listening, bars]);
 
   // Idle: a slow wave travels through the bars — the brand's waveform, alive.
+  // These bars animate a LAYOUT prop (height), so they MUST use useNativeDriver:false,
+  // i.e. they step on the JS thread. If left running while the app is backgrounded (as
+  // during a keyboard dictation, when this screen stays mounted), 9 per-frame JS loops
+  // peg a CPU core and iOS CPU-kills the app after ~55s. So run them ONLY in the
+  // foreground: stop on background, resume on return. (Invisible while backgrounded.)
   useEffect(() => {
     if (listening) return;
-    const loops = bars.map((bar, i) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(i * 130),
-          Animated.timing(bar, { toValue: 0.42, duration: 700, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
-          Animated.timing(bar, { toValue: 0.12, duration: 700, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
-          Animated.delay((BAR_COUNT - i) * 130),
-        ]),
-      ),
-    );
-    loops.forEach((l) => l.start());
-    return () => loops.forEach((l) => l.stop());
+    let loops: Animated.CompositeAnimation[] = [];
+    const start = () => {
+      if (loops.length) return;
+      loops = bars.map((bar, i) =>
+        Animated.loop(
+          Animated.sequence([
+            Animated.delay(i * 130),
+            Animated.timing(bar, { toValue: 0.42, duration: 700, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+            Animated.timing(bar, { toValue: 0.12, duration: 700, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+            Animated.delay((BAR_COUNT - i) * 130),
+          ]),
+        ),
+      );
+      loops.forEach((l) => l.start());
+    };
+    const stop = () => {
+      loops.forEach((l) => l.stop());
+      loops = [];
+    };
+    if (AppState.currentState === 'active') start();
+    const sub = AppState.addEventListener('change', (s) => (s === 'active' ? start() : stop()));
+    return () => {
+      sub.remove();
+      stop();
+    };
   }, [listening, bars]);
 
   return (

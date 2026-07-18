@@ -49,9 +49,10 @@
     "tsx": "^4.22.3",
     "typescript": "~6.0.3"
   },
-  "comment:overrides": "expo-modules-jsi 57.0.2/57.0.3 (both 2026-07-15) fail to compile on Xcode 26.3 / Swift 6.2 (JavaScriptCodable+Date.swift: 'ambiguous without a type annotation'). 57.0.1 is the last version that built here (shipped 1.0.52). Pinned until upstream fixes it.",
+  "comment:overrides": "Pin the expo-modules JSI/core pair to 57.0.1 — the exact matched versions that shipped 1.0.52. expo-modules-jsi 57.0.2/57.0.3 (2026-07-15) fail to COMPILE on Xcode 26.3/Swift 6.2 (JavaScriptCodable+Date.swift: 'ambiguous'); and pinning jsi ALONE (leaving core to float to 57.0.3) is a runtime JSI/core version SKEW that crashes the app at launch. Both must match. Remove once upstream fixes the compile error.",
   "overrides": {
-    "expo-modules-jsi": "57.0.1"
+    "expo-modules-jsi": "57.0.1",
+    "expo-modules-core": "57.0.1"
   },
   "scripts": {
     "start": "expo start",

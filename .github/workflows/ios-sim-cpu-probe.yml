@@ -53,52 +53,62 @@ jobs:
           sleep 8
           xcrun simctl privacy "$UDID" grant all com.vibeflow.dictation || true
 
-      - name: Install + launch + start a session + background it, then probe CPU 10 min
+      - name: Install + launch + start a session + background it, then probe CPU
         run: |
-          set -x
+          set +e
           UDID="$UDID"
           xcrun simctl install "$UDID" "$APP_PATH"
 
-          # stream the app's device log to a file (repeated errors = the throw loop)
+          # stream the WHOLE simulator log (not just one process) so a launch crash /
+          # jsi error / repeated throw is visible regardless of process name.
           xcrun simctl spawn "$UDID" log stream --level debug \
-            --predicate 'processImagePath CONTAINS "VibeFlow"' > sim-device.log 2>&1 &
+            --predicate 'senderImagePath CONTAINS "VibeFlow" OR processImagePath CONTAINS "VibeFlow" OR eventMessage CONTAINS "vibeflow" OR eventMessage CONTAINS "Hermes" OR eventMessage CONTAINS "RCT"' \
+            > sim-device.log 2>&1 &
           LOGPID=$!
 
-          xcrun simctl launch "$UDID" com.vibeflow.dictation || true
+          # launch and CAPTURE the pid (or the crash) — simctl prints "<bundleid>: <pid>"
+          LAUNCH_OUT=$(xcrun simctl launch "$UDID" com.vibeflow.dictation 2>&1)
+          echo "LAUNCH: $LAUNCH_OUT"
+          PID=$(echo "$LAUNCH_OUT" | grep -oE '[0-9]+$')
+          echo "captured app PID = ${PID:-<none>}"
           sleep 6
-          # ask the app to start dictation immediately (same deep-link the keyboard uses)
-          xcrun simctl openurl "$UDID" "vibeflow://record?from=keyboard" || true
+          echo "alive after 6s? $(ps -p "${PID:-0}" -o pid=,comm= 2>/dev/null || echo 'NO — app is not running (launch crash?)')"
+
+          xcrun simctl openurl "$UDID" "vibeflow://record?from=keyboard" 2>&1 || true
           sleep 5
-          # background VibeFlow by foregrounding another app
-          xcrun simctl launch "$UDID" com.apple.mobilesafari || true
+          # background VibeFlow by foregrounding Safari
+          xcrun simctl launch "$UDID" com.apple.mobilesafari 2>&1 || true
 
           echo "ts,cpu_pct,rss_mb" > cpu-samples.csv
-          HIGH=0; MAX=0; SUM=0; N=0
-          for i in $(seq 1 200); do
-            PID=$(pgrep -x VibeFlow | head -1)
-            if [ -n "$PID" ]; then
-              READ=$(ps -o %cpu=,rss= -p "$PID" 2>/dev/null | awk '{printf "%s,%.1f",$1,$2/1024}')
-              CPU=$(echo "$READ" | cut -d, -f1)
+          HIGH=0; MAX=0; SUM=0; N=0; DIED_AT=""
+          for i in $(seq 1 140); do
+            # re-resolve pid each loop in case it changed; prefer the launch pid
+            P="$PID"; ps -p "${P:-0}" >/dev/null 2>&1 || P=$(pgrep -x VibeFlow | head -1)
+            if [ -n "$P" ] && ps -p "$P" >/dev/null 2>&1; then
+              READ=$(ps -o %cpu=,rss= -p "$P" 2>/dev/null | awk '{printf "%s,%.1f",$1,$2/1024}')
+              CPU=$(echo "$READ" | cut -d, -f1); CPUI=$(printf "%.0f" "${CPU:-0}")
               echo "$(date +%s),$READ" >> cpu-samples.csv
-              # integer compare
-              CPUI=$(printf "%.0f" "${CPU:-0}")
               SUM=$((SUM+CPUI)); N=$((N+1))
               [ "$CPUI" -gt "$MAX" ] && MAX=$CPUI
               [ "$CPUI" -gt 40 ] && HIGH=$((HIGH+1))
             else
               echo "$(date +%s),GONE,0" >> cpu-samples.csv
+              [ -z "$DIED_AT" ] && DIED_AT="$i"
             fi
             sleep 3
           done
-          kill $LOGPID 2>/dev/null || true
+          kill $LOGPID 2>/dev/null
 
           echo "===================== CPU PROBE SUMMARY ====================="
-          [ "$N" -gt 0 ] && echo "samples=$N  avg=$((SUM/N))%  max=${MAX}%  samples>40%=${HIGH}"
-          echo "If avg/max are high and sustained -> the background CPU-spin reproduces here."
-          echo "----- last 20 CPU samples -----"; tail -20 cpu-samples.csv
-          echo "----- repeated device-log lines (top 15 by count = the spin's error) -----"
-          grep -iE "error|exception|throw|fail|AVAudio|interrupt|engine|denied|nan" sim-device.log \
-            | sed -E 's/^[0-9-]+ [0-9:.]+[^]]*\] *//' | sort | uniq -c | sort -rn | head -15 || true
+          echo "launch: $LAUNCH_OUT"
+          [ -n "$DIED_AT" ] && echo "app process NOT found starting at sample $DIED_AT (crash or wrong pid)"
+          [ "$N" -gt 0 ] && echo "live samples=$N  avg=$((SUM/N))%  max=${MAX}%  samples>40%=${HIGH}" || echo "NO live CPU samples captured"
+          echo "INTERPRET: app runs + avg/max HIGH sustained -> spin reproduces. app runs + low CPU -> fixed/idle. app never runs -> launch crash."
+          echo "----- CPU samples (every 10th) -----"; awk 'NR==1||NR%10==0' cpu-samples.csv
+          echo "----- device-log: launch/crash/error signatures -----"
+          grep -iE "crash|exception|fatal|signal|abort|terminat|jsi|hermes|assert|error|throw|AVAudio|denied" sim-device.log \
+            | sed -E 's/^[0-9-]+ [0-9:.]+[^]]*] *//' | sort | uniq -c | sort -rn | head -20
+          echo "----- first 30 raw device-log lines -----"; head -30 sim-device.log
 
       - name: Upload probe artifacts
         if: always()
