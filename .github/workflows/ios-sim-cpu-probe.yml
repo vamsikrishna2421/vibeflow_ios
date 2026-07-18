@@ -1,0 +1,111 @@
+# Empirical CPU probe: build VibeFlow for the iOS Simulator on a cloud macOS
+# runner, launch it, start a dictation session via the keyboard deep-link, send it
+# to the background, and log its CPU every 3s for ~10 minutes. A background CPU-spin
+# (the "issue 2" the OS kills on-device) will show as sustained high CPU here even
+# though the Simulator won't enforce the kill. Also streams the device log so a
+# repeated throw/error loop is visible.
+name: iOS Sim CPU probe
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['sim-probe-*']
+
+jobs:
+  probe:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26.3
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app && xcodebuild -version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install JS deps
+        run: npm install --no-audit --no-fund
+      - name: Install CocoaPods
+        run: |
+          sudo gem install cocoapods -v 1.17.0 --no-document
+          cd ios && rm -f Podfile.lock && pod install
+
+      - name: Build for the Simulator (no signing)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace ios/VibeFlow.xcworkspace \
+            -scheme VibeFlow \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -derivedDataPath ios/build-sim \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build 2>&1 | tail -40
+          echo "APP_PATH=$(ls -d ios/build-sim/Build/Products/Release-iphonesimulator/VibeFlow.app)" >> "$GITHUB_ENV"
+
+      - name: Boot a simulator + grant permissions
+        run: |
+          RT=$(xcrun simctl list runtimes | grep -oE 'com.apple.CoreSimulator.SimRuntime.iOS-[0-9-]+' | tail -1)
+          echo "runtime=$RT"
+          UDID=$(xcrun simctl create probe-phone "iPhone 16" "$RT")
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID"
+          sleep 8
+          xcrun simctl privacy "$UDID" grant all com.vibeflow.dictation || true
+
+      - name: Install + launch + start a session + background it, then probe CPU 10 min
+        run: |
+          set -x
+          UDID="$UDID"
+          xcrun simctl install "$UDID" "$APP_PATH"
+
+          # stream the app's device log to a file (repeated errors = the throw loop)
+          xcrun simctl spawn "$UDID" log stream --level debug \
+            --predicate 'processImagePath CONTAINS "VibeFlow"' > sim-device.log 2>&1 &
+          LOGPID=$!
+
+          xcrun simctl launch "$UDID" com.vibeflow.dictation || true
+          sleep 6
+          # ask the app to start dictation immediately (same deep-link the keyboard uses)
+          xcrun simctl openurl "$UDID" "vibeflow://record?from=keyboard" || true
+          sleep 5
+          # background VibeFlow by foregrounding another app
+          xcrun simctl launch "$UDID" com.apple.mobilesafari || true
+
+          echo "ts,cpu_pct,rss_mb" > cpu-samples.csv
+          HIGH=0; MAX=0; SUM=0; N=0
+          for i in $(seq 1 200); do
+            PID=$(pgrep -x VibeFlow | head -1)
+            if [ -n "$PID" ]; then
+              READ=$(ps -o %cpu=,rss= -p "$PID" 2>/dev/null | awk '{printf "%s,%.1f",$1,$2/1024}')
+              CPU=$(echo "$READ" | cut -d, -f1)
+              echo "$(date +%s),$READ" >> cpu-samples.csv
+              # integer compare
+              CPUI=$(printf "%.0f" "${CPU:-0}")
+              SUM=$((SUM+CPUI)); N=$((N+1))
+              [ "$CPUI" -gt "$MAX" ] && MAX=$CPUI
+              [ "$CPUI" -gt 40 ] && HIGH=$((HIGH+1))
+            else
+              echo "$(date +%s),GONE,0" >> cpu-samples.csv
+            fi
+            sleep 3
+          done
+          kill $LOGPID 2>/dev/null || true
+
+          echo "===================== CPU PROBE SUMMARY ====================="
+          [ "$N" -gt 0 ] && echo "samples=$N  avg=$((SUM/N))%  max=${MAX}%  samples>40%=${HIGH}"
+          echo "If avg/max are high and sustained -> the background CPU-spin reproduces here."
+          echo "----- last 20 CPU samples -----"; tail -20 cpu-samples.csv
+          echo "----- repeated device-log lines (top 15 by count = the spin's error) -----"
+          grep -iE "error|exception|throw|fail|AVAudio|interrupt|engine|denied|nan" sim-device.log \
+            | sed -E 's/^[0-9-]+ [0-9:.]+[^]]*\] *//' | sort | uniq -c | sort -rn | head -15 || true
+
+      - name: Upload probe artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-probe
+          path: |
+            cpu-samples.csv
+            sim-device.log
+          if-no-files-found: ignore
