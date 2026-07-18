@@ -49,6 +49,10 @@
     "tsx": "^4.22.3",
     "typescript": "~6.0.3"
   },
+  "comment:overrides": "expo-modules-jsi 57.0.2/57.0.3 (both 2026-07-15) fail to compile on Xcode 26.3 / Swift 6.2 (JavaScriptCodable+Date.swift: 'ambiguous without a type annotation'). 57.0.1 is the last version that built here (shipped 1.0.52). Pinned until upstream fixes it.",
+  "overrides": {
+    "expo-modules-jsi": "57.0.1"
+  },
   "scripts": {
     "start": "expo start",
     "ios": "expo run:ios",
