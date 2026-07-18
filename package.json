@@ -2,7 +2,7 @@
   "name": "vibeflow",
   "version": "1.0.0",
   "main": "index.ts",
-  "description": "VibeFlow \u2014 premium offline voice keyboard for iPhone (Expo app + native keyboard extension).",
+  "description": "VibeFlow — premium offline voice keyboard for iPhone (Expo app + native keyboard extension).",
   "dependencies": {
     "@bacons/apple-targets": "^4.0.0",
     "@expo/vector-icons": "^15.1.0",
@@ -27,7 +27,7 @@
     "expo-sqlite": "~57.0.0",
     "expo-status-bar": "~57.0.0",
     "expo-system-ui": "~57.0.0",
-    "expo-updates": "57.0.3",
+    "expo-updates": "~57.0.0",
     "expo-web-browser": "~57.0.0",
     "react": "19.2.3",
     "react-native": "0.86.0",
@@ -48,11 +48,6 @@
     "ts-jest": "^29.4.11",
     "tsx": "^4.22.3",
     "typescript": "~6.0.3"
-  },
-  "comment:overrides": "Reproduce 1.0.52's PROVEN-WORKING trio: expo-modules-jsi 57.0.1 (its latest at 1.0.52's build; 57.0.2/3 don't compile on Swift 6.2) + expo-modules-core 57.0.3 (core's latest then; core has since drifted to 57.0.6 but jsi is stuck at 57.0.3 which won't compile). file-system/font stay at their natural 57.0.0 and are compatible with core 57.0.3 (1.0.52 proved it on device). Do NOT pin core to 57.0.1 \u2014 that intermediate is missing _decorateExpoObject and crashes ExpoFileSystem at launch (1.0.55).",
-  "overrides": {
-    "expo-modules-jsi": "57.0.1",
-    "expo-modules-core": "57.0.3"
   },
   "scripts": {
     "start": "expo start",
