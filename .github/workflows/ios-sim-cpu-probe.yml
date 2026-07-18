@@ -32,13 +32,17 @@ jobs:
       - name: Build for the Simulator (no signing)
         run: |
           set -o pipefail
+          HOSTARCH=$(uname -m)
+          echo "RUNNER ARCH = $HOSTARCH  (arm64 => Expo's arm64-only XCFrameworks can load & the app can RUN)"
+          # Build for the HOST arch sim so the prebuilt arm64 Expo frameworks resolve.
           xcodebuild \
             -workspace ios/VibeFlow.xcworkspace \
             -scheme VibeFlow \
             -configuration Release \
             -sdk iphonesimulator \
             -derivedDataPath ios/build-sim \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination "generic/platform=iOS Simulator" \
+            ARCHS="$HOSTARCH" ONLY_ACTIVE_ARCH=YES EXCLUDED_ARCHS="" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             build 2>&1 | tail -40
           echo "APP_PATH=$(ls -d ios/build-sim/Build/Products/Release-iphonesimulator/VibeFlow.app)" >> "$GITHUB_ENV"
