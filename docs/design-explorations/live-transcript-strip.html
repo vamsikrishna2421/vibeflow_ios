@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VibeFlow — Live transcript in the keyboard strip</title>
+<style>
+  :root{
+    --bg:#0B0A14; --panel:#141327; --panel2:#1b1930;
+    --key:#2a2842; --keydown:#39355c;
+    --brand:#7C5CFF; --brand-dim:#5b49b8;
+    --ink:#F4F2FF; --muted:#9a95c4; --faint:#615c8a;
+    --strip:#17162b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1200px 700px at 50% -10%, #1a1836 0%, var(--bg) 60%);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:900px;margin:0 auto;padding:28px 20px 60px}
+  h1{font-size:20px;font-weight:650;letter-spacing:-.01em;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13.5px;line-height:1.55;margin:0 0 22px;max-width:60ch}
+  .sub b{color:var(--ink);font-weight:600}
+
+  .stage{display:flex;flex-wrap:wrap;gap:34px;align-items:flex-start;justify-content:center}
+
+  /* phone */
+  .phone{width:340px;flex:0 0 auto;border-radius:38px;background:#050510;padding:10px;
+    box-shadow:0 30px 70px -20px rgba(0,0,0,.8),0 0 0 1px rgba(124,92,255,.14),inset 0 0 0 2px #0d0c1c}
+  .screen{border-radius:30px;overflow:hidden;background:linear-gradient(180deg,#0e0d1c,#0b0a14);height:620px;display:flex;flex-direction:column}
+  .statusbar{height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:12px;color:var(--muted)}
+  .statusbar .dot{display:flex;gap:4px;align-items:center}
+  .app{flex:1;display:flex;flex-direction:column;padding:14px 14px 0}
+  .app-title{font-size:12px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;margin:2px 2px 10px}
+  .field{flex:1;background:#100f22;border:1px solid #221f3d;border-radius:14px;padding:14px;font-size:15px;line-height:1.5;color:var(--ink);overflow:hidden}
+  .field .ph{color:var(--faint)}
+  .field .caret{display:inline-block;width:2px;height:17px;background:var(--brand);vertical-align:-3px;margin-left:1px;animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  /* keyboard */
+  .kb{background:var(--panel);border-top:1px solid #242142;padding:0 0 8px;box-shadow:0 -12px 30px -18px rgba(0,0,0,.7)}
+  .capline-track{height:3px;background:transparent;position:relative;overflow:hidden}
+  .capline{position:absolute;left:0;top:0;height:3px;width:0;background:linear-gradient(90deg,var(--brand-dim),var(--brand));border-radius:0 2px 2px 0;box-shadow:0 0 8px rgba(124,92,255,.6)}
+
+  .topbar{height:46px;display:flex;align-items:center;gap:8px;padding:0 8px}
+  .strip{flex:1;height:38px;border-radius:11px;background:var(--strip);border:1px solid #221f3d;overflow:hidden;position:relative;display:flex;align-items:center}
+  .strip .inner{padding:0 12px;width:100%;white-space:nowrap;overflow:hidden}
+
+  /* idle/hint state */
+  .hint{color:var(--muted);font-size:13.5px;display:flex;align-items:center;gap:7px}
+  .hint .rec{width:8px;height:8px;border-radius:50%;background:#ff5a7a;box-shadow:0 0 0 0 rgba(255,90,122,.6);animation:pulse 1.4s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,90,122,.55)}70%{box-shadow:0 0 0 7px rgba(255,90,122,0)}100%{box-shadow:0 0 0 0 rgba(255,90,122,0)}}
+
+  /* live transcript text */
+  .live{font-size:14px;font-weight:500;letter-spacing:-.005em;display:inline-block}
+  .live .old{color:var(--faint)}
+  .live .fin{color:var(--ink)}
+  .live .cur{color:#c9bcff}
+  .live .tcaret{display:inline-block;width:2px;height:15px;background:var(--brand);vertical-align:-2px;margin-left:2px;animation:blink 1s steps(1) infinite}
+  /* left fade for ticker */
+  .strip.ticker .inner{-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 46px);mask-image:linear-gradient(90deg,transparent 0,#000 46px)}
+
+  .mic{width:38px;height:38px;flex:0 0 auto;border-radius:50%;border:none;cursor:pointer;
+    background:linear-gradient(160deg,#8f74ff,#6b52e6);color:#fff;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 6px 16px -4px rgba(124,92,255,.65),inset 0 1px 0 rgba(255,255,255,.25);transition:transform .12s}
+  .mic:active{transform:scale(.94)}
+  .mic.live{animation:micglow 1.3s ease-in-out infinite}
+  @keyframes micglow{0%,100%{box-shadow:0 6px 16px -4px rgba(124,92,255,.65)}50%{box-shadow:0 6px 22px 0 rgba(124,92,255,.95)}}
+  .mic svg{width:19px;height:19px}
+
+  .rows{padding:7px 5px 0;display:flex;flex-direction:column;gap:7px}
+  .row{display:flex;gap:6px;justify-content:center}
+  .kc{height:38px;flex:1;border-radius:7px;background:var(--key);display:flex;align-items:center;justify-content:center;
+    font-size:15px;color:#efeaff;box-shadow:0 1px 0 rgba(0,0,0,.4)}
+  .kc.w{flex:1.5}.kc.sp{flex:5}.kc.fn{flex:1.4;background:#211f38;color:var(--muted);font-size:12.5px}
+
+  /* controls */
+  .controls{flex:1 1 320px;max-width:360px;min-width:280px}
+  .card{background:var(--panel);border:1px solid #242142;border-radius:16px;padding:18px}
+  .card h2{font-size:13px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:0 0 14px;font-weight:600}
+  .seg{display:flex;background:var(--panel2);border-radius:11px;padding:4px;gap:4px;margin-bottom:16px}
+  .seg button{flex:1;border:none;background:transparent;color:var(--muted);font-size:13px;font-weight:600;padding:9px 6px;border-radius:8px;cursor:pointer;transition:.15s}
+  .seg button.on{background:var(--brand);color:#fff;box-shadow:0 4px 12px -3px rgba(124,92,255,.6)}
+  .vdesc{font-size:13px;line-height:1.6;color:var(--muted);min-height:66px;margin:0 0 16px}
+  .vdesc b{color:var(--ink);font-weight:600}
+  .play{width:100%;border:none;border-radius:11px;padding:13px;font-size:14.5px;font-weight:650;cursor:pointer;
+    background:linear-gradient(160deg,#8f74ff,#6b52e6);color:#fff;box-shadow:0 8px 20px -6px rgba(124,92,255,.6)}
+  .play:disabled{opacity:.5;cursor:default}
+  .notes{margin:18px 2px 0;font-size:12.5px;line-height:1.7;color:var(--faint)}
+  .notes b{color:var(--muted)}
+  .legend{display:flex;gap:16px;margin:14px 2px 0;font-size:12px;color:var(--muted);flex-wrap:wrap}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .sw{width:11px;height:11px;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Live transcript in the keyboard strip</h1>
+  <p class="sub">The words you speak appear <b>live in the space left of the mic</b> while you dictate. Your text field stays untouched until you stop — then the finished text drops in (your 1.0.20 behavior, unchanged). Pick a style and press <b>Play demo</b>.</p>
+
+  <div class="stage">
+    <!-- PHONE -->
+    <div class="phone">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="dot">▲ ▪ ■</span></div>
+        <div class="app">
+          <div class="app-title">Messages · to Alex</div>
+          <div class="field" id="field"><span class="ph">Tap the mic and speak…</span></div>
+        </div>
+        <!-- keyboard -->
+        <div class="kb">
+          <div class="capline-track"><div class="capline" id="capline"></div></div>
+          <div class="topbar">
+            <div class="strip" id="strip">
+              <div class="inner" id="inner">
+                <span class="hint"><span class="rec"></span>Listening — speak, tap mic to finish</span>
+              </div>
+            </div>
+            <button class="mic" id="mic" title="mic">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 12a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V23h2v-2.06A9 9 0 0 0 21 12h-2z"/></svg>
+            </button>
+          </div>
+          <div class="rows" aria-hidden="true">
+            <div class="row"><div class="kc">q</div><div class="kc">w</div><div class="kc">e</div><div class="kc">r</div><div class="kc">t</div><div class="kc">y</div><div class="kc">u</div><div class="kc">i</div><div class="kc">o</div><div class="kc">p</div></div>
+            <div class="row"><div class="kc">a</div><div class="kc">s</div><div class="kc">d</div><div class="kc">f</div><div class="kc">g</div><div class="kc">h</div><div class="kc">j</div><div class="kc">k</div><div class="kc">l</div></div>
+            <div class="row"><div class="kc w">⇧</div><div class="kc">z</div><div class="kc">x</div><div class="kc">c</div><div class="kc">v</div><div class="kc">b</div><div class="kc">n</div><div class="kc">m</div><div class="kc w">⌫</div></div>
+            <div class="row"><div class="kc fn">123</div><div class="kc fn">🌐</div><div class="kc sp">space</div><div class="kc fn">return</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONTROLS -->
+    <div class="controls">
+      <div class="card">
+        <h2>Style</h2>
+        <div class="seg" id="seg">
+          <button data-v="tail" class="on">Tail line ✦</button>
+          <button data-v="ticker">Scrolling</button>
+        </div>
+        <p class="vdesc" id="vdesc"></p>
+        <button class="play" id="play">▶  Play demo</button>
+        <div class="legend">
+          <span><span class="sw" style="background:#615c8a"></span>earlier words</span>
+          <span><span class="sw" style="background:#F4F2FF"></span>settled</span>
+          <span><span class="sw" style="background:#c9bcff"></span>current partial</span>
+        </div>
+      </div>
+      <p class="notes">
+        <b>How it works:</b> the app already streams partial results to the shared App Group during recording — the keyboard just reads them and shows the newest words in the strip. Throttled so it stays smooth.<br><br>
+        <b>Safe by design:</b> nothing is inserted into the text field mid-dictation, so it can’t wipe or drop text. The strip is display-only; the final text still commits on stop.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+  const SENTENCE = "hey Alex can you send me the quarterly report by end of day tomorrow thanks so much".split(" ");
+  const VARIANTS = {
+    tail: {
+      label: "Tail line ✦ <b>(recommended)</b>",
+      desc: "One clean line. The <b>newest words</b> stay bright next to the mic; older words dim and slide off the left. A caret shows it’s live. Calm and readable in a 44&nbsp;pt strip.",
+      ticker:false
+    },
+    ticker: {
+      label: "Scrolling",
+      desc: "Words <b>scroll right→left</b> like a ticker, newest arriving by the mic, with a soft fade on the left edge. More motion — feels energetic but busier.",
+      ticker:true
+    }
+  };
+
+  const inner = document.getElementById('inner');
+  const strip = document.getElementById('strip');
+  const field = document.getElementById('field');
+  const mic = document.getElementById('mic');
+  const capline = document.getElementById('capline');
+  const vdesc = document.getElementById('vdesc');
+  const play = document.getElementById('play');
+  let variant = 'tail', timer = null;
+
+  function setVariant(v){
+    variant = v;
+    vdesc.innerHTML = VARIANTS[v].desc;
+    strip.classList.toggle('ticker', VARIANTS[v].ticker);
+    document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on', b.dataset.v===v));
+  }
+  document.getElementById('seg').addEventListener('click',e=>{ if(e.target.dataset.v){ reset(); setVariant(e.target.dataset.v);} });
+
+  function reset(){
+    if(timer){clearInterval(timer);timer=null;}
+    capline.style.transition='none'; capline.style.width='0';
+    mic.classList.remove('live'); play.disabled=false; play.textContent='▶  Play demo';
+    field.innerHTML='<span class="ph">Tap the mic and speak…</span>';
+    inner.innerHTML='<span class="hint"><span class="rec"></span>Listening — speak, tap mic to finish</span>';
+  }
+
+  function renderTail(spoken, curPartial){
+    // show a window of the most recent words that fit; older -> dim, leading ellipsis
+    const words = spoken.slice();
+    const MAXCHARS = 34;
+    let tail=[], len=0;
+    for(let i=words.length-1;i>=0;i--){ len+=words[i].length+1; if(len>MAXCHARS && tail.length>=3) break; tail.unshift({w:words[i],i}); }
+    const cut = tail.length < words.length;
+    let html = cut ? '<span class="old">… </span>' : '';
+    tail.forEach((t,idx)=>{ const recent = t.i >= words.length-2; html += `<span class="${recent?'fin':'old'}">${t.w} </span>`; });
+    if(curPartial) html += `<span class="cur">${curPartial}</span>`;
+    html += '<span class="tcaret"></span>';
+    inner.innerHTML = `<span class="live">${html}</span>`;
+  }
+
+  function renderTicker(spoken, curPartial){
+    const recentCount=7;
+    const words = spoken.slice(-recentCount);
+    let html='';
+    words.forEach((w,idx)=>{ const dim = idx < words.length-3; html += `<span class="${dim?'old':'fin'}">${w} </span>`; });
+    if(curPartial) html += `<span class="cur">${curPartial}</span>`;
+    html += '<span class="tcaret"></span>';
+    inner.innerHTML = `<span class="live" style="float:right">${html}</span>`;
+  }
+
+  function render(spoken,cur){ (variant==='ticker'?renderTicker:renderTail)(spoken,cur); }
+
+  function start(){
+    reset(); play.disabled=true; play.textContent='● Recording…'; mic.classList.add('live');
+    // 45s cap line — compress to ~9s for the demo
+    requestAnimationFrame(()=>{ capline.style.transition='width 9s linear'; capline.style.width='100%'; });
+    const spoken=[]; let i=0;
+    render(spoken,'');
+    timer=setInterval(()=>{
+      if(i>=SENTENCE.length){ stop(spoken); return; }
+      const w=SENTENCE[i];
+      // brief "partial" flash of the current word, then settle it
+      render(spoken, w);
+      setTimeout(()=>{ spoken.push(w); render(spoken,''); }, 150);
+      i++;
+    }, 360);
+  }
+
+  function stop(spoken){
+    clearInterval(timer); timer=null;
+    capline.style.transition='width .3s'; capline.style.width='0';
+    mic.classList.remove('live');
+    inner.innerHTML='<span class="hint" style="color:var(--brand)">✨ Working on your words…</span>';
+    // final text drops into the field only now
+    setTimeout(()=>{
+      let s=spoken.join(' '); s=s.charAt(0).toUpperCase()+s.slice(1)+'.';
+      s=s.replace(' alex',' Alex');
+      field.innerHTML = s+'<span class="caret"></span>';
+      inner.innerHTML='<span class="hint" style="color:var(--faint)">🎙  Tap the mic and just speak</span>';
+      play.disabled=false; play.textContent='▶  Play again';
+    }, 900);
+  }
+
+  mic.addEventListener('click',()=>{ if(timer){ stop([].slice.call(document.querySelectorAll('#inner .fin,#inner .old')).map(x=>x.textContent.trim()).filter(x=>x&&x!=='…')); } else start(); });
+  play.addEventListener('click',start);
+  setVariant('tail');
+</script>
+</body>
+</html>
