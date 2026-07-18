@@ -1,17 +1,20 @@
 diff --git a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Coding/JavaScriptCodable+Date.swift b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Coding/JavaScriptCodable+Date.swift
-index eb1cc94..d0775ee 100644
+index eb1cc94..6ddba82 100644
 --- a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Coding/JavaScriptCodable+Date.swift
 +++ b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Coding/JavaScriptCodable+Date.swift
-@@ -50,7 +50,11 @@ let maxJavaScriptDateMilliseconds: Double = 8_640_000_000_000_000
+@@ -50,7 +50,14 @@ let maxJavaScriptDateMilliseconds: Double = 8_640_000_000_000_000
  /// faithful to `new Date(number)`; the `Date`/string branches pass an already-clipped `getTime()` through.
  @usableFromInline
  func dateFromMilliseconds(_ milliseconds: Double) throws -> Date {
 -  guard milliseconds.isFinite, abs(milliseconds) <= maxJavaScriptDateMilliseconds else {
-+  // Patched (VibeFlow): reference an explicitly-typed local instead of the
-+  // @usableFromInline global — Swift 6.2 / Xcode 26.3 reports the comparison as
-+  // "type of expression is ambiguous" across the module boundary otherwise.
++  // Patched (VibeFlow): fully annotate every operand so Swift 6.2 / Xcode 26.3 can't
++  // report "type of expression is ambiguous" on the comparison when this
++  // @usableFromInline body is inlined across the module boundary. `.magnitude` avoids
++  // the free `abs()` overload; the comparison result is bound to an explicit Bool.
 +  let maxMs: Double = 8_640_000_000_000_000
-+  guard milliseconds.isFinite, abs(milliseconds) <= maxMs else {
++  let magnitude: Double = milliseconds.magnitude
++  let withinRange: Bool = magnitude <= maxMs
++  guard milliseconds.isFinite, withinRange else {
      throw InvalidDateException()
    }
    return Date(timeIntervalSince1970: milliseconds.rounded(.towardZero) / 1000.0)
