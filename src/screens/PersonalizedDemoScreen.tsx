@@ -3,12 +3,17 @@
  *
  * Flow (one-time, gated by store.demoCompleted):
  *   0. signin      — Apple/Google, skippable (a session lets Pro polish real words).
- *   1. profile     — capture name + job title (name prefilled from sign-in).
- *   2. permissions — explicit up-front mic + speech ask (the mic-tap ask remains too).
- *   3. read        — read a personalised brain-dump aloud. The recognizer is PRIMED
+ *                    A RETURNING user (saved cloud profile) is greeted "welcome back".
+ *   1. keyboard    — the FIRST setup step: enable the VibeFlow keyboard + Full Access.
+ *                    Silently skipped when it's already set up (App Group flags on iOS,
+ *                    IME state on Android).
+ *   2. profile     — capture name + occupation (name prefilled from sign-in; occupation
+ *                    is a tappable picker). Saved locally AND to the cloud (user_profiles).
+ *   3. permissions — explicit up-front mic + speech ask (the mic-tap ask remains too).
+ *   4. read        — read a personalised brain-dump aloud. The recognizer is PRIMED
  *                    with name+title (contextualStrings → SFSpeechRecognizer) so they're
  *                    heard right, and both are saved to Vocabulary (keyboard included).
- *   4. result      — the RAW dictation, then the SAME words transformed three ways —
+ *   5. result      — the RAW dictation, then the SAME words transformed three ways —
  *                    Email · Casual · Notes (facts/to-dos/follow-ups/open questions) —
  *                    to show Pro's range. Real polish() when signed in, crafted preview
  *                    otherwise. → "Unlock Pro".
@@ -18,14 +23,17 @@ import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PRO_ENABLED } from '@/config/features';
 import { useAuth } from '@/hooks/useAuth';
 import { useDictation } from '@/hooks/useDictation';
 import { useNav } from '@/navigation/nav';
-import { signInWithApple, signInWithGoogle } from '@/services/auth';
+import { signInWithApple, signInWithGoogle, signOut } from '@/services/auth';
+import * as KeyboardSvc from '@/services/keyboard';
 import { polish, PolishStyle } from '@/services/polish';
+import { fetchCloudProfile, saveCloudProfile } from '@/services/profile';
+import { getItem } from '@/store/appGroup';
 import { useStore } from '@/store';
 import { Colors, Radius, brandGradient, heroMicGradient } from '@/theme/colors';
 import { Card, GhostButton, PrimaryButton, Screen, TextField, Type, haptic } from '@/ui/kit';
@@ -101,7 +109,14 @@ function cannedFor(style: Style, name: string): string {
   );
 }
 
-type Step = 'signin' | 'profile' | 'permissions' | 'read' | 'result';
+type Step = 'signin' | 'keyboard' | 'profile' | 'permissions' | 'read' | 'result';
+
+// A small, fixed set of occupations (plus free-text "Other…") — structured enough
+// that "which professions dictate most" is a clean group-by, not fuzzy strings.
+const OCCUPATIONS = [
+  'Engineer', 'Product', 'Designer', 'Writer', 'Healthcare',
+  'Legal', 'Sales', 'Student', 'Founder',
+];
 interface Output {
   text: string;
   kind: 'real' | 'canned';
@@ -117,6 +132,22 @@ export function PersonalizedDemoScreen() {
   const [step, setStep] = useState<Step>('signin');
   const [name, setName] = useState(profile.name || meta.full_name || meta.name || '');
   const [role, setRole] = useState(profile.jobTitle || '');
+  // Occupation is a picker; "Other…" reveals a free-text field. Start in free-text
+  // mode if a previously-saved occupation isn't one of the presets.
+  const [otherMode, setOtherMode] = useState(() => {
+    const r = (profile.jobTitle || '').trim();
+    return !!r && !OCCUPATIONS.includes(r);
+  });
+
+  // Returning user: their saved cloud profile (null until loaded / for new users).
+  const [returning, setReturning] = useState<{ name: string; occupation: string } | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+
+  // Keyboard-setup step state (iOS: App Group flags; Android: IME state).
+  const [kbInstalled, setKbInstalled] = useState(false);
+  const [kbFullAccess, setKbFullAccess] = useState(false);
+  const kbAutoSkipDone = useRef(false);
+  const kbWasDone = useRef(false);
   const [raw, setRaw] = useState('');
   const [activeStyle, setActiveStyle] = useState<Style>('email');
   const [outputs, setOutputs] = useState<Partial<Record<Style, Output>>>({});
@@ -128,10 +159,79 @@ export function PersonalizedDemoScreen() {
 
   const sample = useMemo(() => buildSample(name.trim(), role.trim()), [name, role]);
 
-  // Already signed in when the demo opens? Skip past the sign-in step.
+  // When signed in, pull the saved cloud profile so we can greet returning users
+  // ("welcome back") and prefill their name + occupation.
   useEffect(() => {
-    if (step === 'signin' && ready && signedIn) setStep('profile');
-  }, [step, ready, signedIn]);
+    if (!ready) return;
+    if (!signedIn) {
+      setProfileLoaded(true);
+      return;
+    }
+    let active = true;
+    (async () => {
+      const p = await fetchCloudProfile();
+      if (!active) return;
+      if (p?.name) {
+        setName((n: string) => n || p.name);
+        if (p.occupation) {
+          setRole((r) => r || p.occupation);
+          if (!OCCUPATIONS.includes(p.occupation)) setOtherMode(true);
+        }
+        setReturning(p);
+      }
+      setProfileLoaded(true);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [ready, signedIn]);
+
+  // A signed-in user with no saved profile has nothing to greet → go straight to
+  // keyboard setup. (Returning users see the "welcome back" sign-in screen instead.)
+  useEffect(() => {
+    if (step === 'signin' && ready && signedIn && profileLoaded && !returning) {
+      setStep('keyboard');
+    }
+  }, [step, ready, signedIn, profileLoaded, returning]);
+
+  // While on the keyboard step, poll setup state and skip it silently if it's
+  // already done the first time we look (reinstall / previously configured).
+  useEffect(() => {
+    if (step !== 'keyboard') return;
+    const isDone = () =>
+      Platform.OS === 'ios'
+        ? getItem('kbd_installed') === 'true' && getItem('kbd_full_access') === 'true'
+        : KeyboardSvc.isEnabled() && KeyboardSvc.isChosen();
+    const read = () => {
+      if (Platform.OS === 'ios') {
+        setKbInstalled(getItem('kbd_installed') === 'true');
+        setKbFullAccess(getItem('kbd_full_access') === 'true');
+      } else {
+        setKbInstalled(KeyboardSvc.isEnabled());
+        setKbFullAccess(KeyboardSvc.isChosen());
+      }
+      if (isDone() && !kbWasDone.current) {
+        kbWasDone.current = true;
+        haptic.success();
+      }
+    };
+    read();
+    if (!kbAutoSkipDone.current) {
+      kbAutoSkipDone.current = true;
+      if (isDone()) {
+        setStep('profile'); // already set up — skip silently
+        return;
+      }
+    }
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') read();
+    });
+    const timer = setInterval(read, 1200);
+    return () => {
+      sub.remove();
+      clearInterval(timer);
+    };
+  }, [step]);
 
   // Prefill name from the provider once a session lands (if still blank).
   useEffect(() => {
@@ -225,20 +325,24 @@ export function PersonalizedDemoScreen() {
     }
   }
 
-  // Step back through the one-time demo flow (signin → profile → permissions → read → result).
+  // Step back through the one-time demo flow
+  // (signin → keyboard → profile → permissions → read → result).
   function back() {
     haptic.tap();
     if (step === 'result') setStep('read');
     else if (step === 'read') setStep('permissions');
     else if (step === 'permissions') setStep('profile');
-    else if (step === 'profile') setStep('signin');
+    else if (step === 'profile') setStep('keyboard');
+    else if (step === 'keyboard') setStep('signin');
   }
 
-  // Persist profile + seed vocabulary the moment they commit to the demo.
+  // Persist profile + seed vocabulary the moment they commit to the demo. Saved
+  // locally (store + Vocabulary) and, when signed in, to the cloud (fire-and-forget).
   function prime() {
     setProfile({ name: name.trim(), jobTitle: role.trim() });
     if (name.trim()) addTerm(name.trim());
     if (role.trim()) addTerm(role.trim());
+    saveCloudProfile(name.trim(), role.trim()).catch(() => {});
   }
 
   function toPermissions() {
@@ -266,13 +370,32 @@ export function PersonalizedDemoScreen() {
     completeDemo();
   }
 
+  // Open the OS screen where the keyboard / Full Access is toggled.
+  function openKbSettings() {
+    haptic.tap();
+    if (Platform.OS === 'ios') Linking.openSettings().catch(() => {});
+    else KeyboardSvc.openImeSettings();
+  }
+
   const runAuth = (fn: () => Promise<void>) => async () => {
     if (authBusy) return;
     setAuthBusy(true);
     try {
       await fn();
       haptic.success();
-      setStep('profile');
+      // Returning user? Greet them (stay on sign-in showing "welcome back").
+      // New user? Straight to keyboard setup.
+      const p = await fetchCloudProfile();
+      if (p?.name) {
+        setName((n: string) => n || p.name);
+        if (p.occupation) {
+          setRole((r) => r || p.occupation);
+          if (!OCCUPATIONS.includes(p.occupation)) setOtherMode(true);
+        }
+        setReturning(p);
+      } else {
+        setStep('keyboard');
+      }
     } catch (e: any) {
       haptic.warning();
       const msg = e?.message ?? String(e);
@@ -292,6 +415,41 @@ export function PersonalizedDemoScreen() {
     } catch {
       haptic.warning();
     }
+  }
+
+  // ── step 0a: returning user — "welcome back" ───────────────────────────────
+  if (step === 'signin' && returning) {
+    const first = returning.name.trim().split(/\s+/)[0];
+    return (
+      <Screen>
+        <View style={styles.hero}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{first.charAt(0).toUpperCase()}</Text>
+          </View>
+          <Text style={Type.title}>Welcome back, {first} 👋</Text>
+          <Text style={[Type.subtitle, { marginTop: 6 }]}>
+            Your profile and{' '}
+            <Text style={{ color: Colors.ink, fontWeight: '700' }}>50 weekly AI polishes</Text> are ready. Let's pick up where you left off.
+          </Text>
+        </View>
+
+        <View style={{ flex: 1 }} />
+        <PrimaryButton
+          label={`Continue as ${first}`}
+          icon="arrow-forward"
+          onPress={() => { haptic.tap(); prime(); setStep('keyboard'); }}
+        />
+        <GhostButton
+          label="Use a different account"
+          onPress={async () => {
+            haptic.tap();
+            try { await signOut(); } catch {}
+            setReturning(null);
+          }}
+          style={{ marginTop: 6 }}
+        />
+      </Screen>
+    );
   }
 
   // ── step 0: sign in (skippable) ────────────────────────────────────────────
@@ -329,10 +487,67 @@ export function PersonalizedDemoScreen() {
 
         {authBusy ? <ActivityIndicator style={{ marginTop: 16 }} color={Colors.brand} /> : null}
 
-        <GhostButton label="Skip for now" onPress={() => { haptic.tap(); setStep('profile'); }} style={{ marginTop: 12 }} />
+        <GhostButton label="Skip for now" onPress={() => { haptic.tap(); setStep('keyboard'); }} style={{ marginTop: 12 }} />
         <Text style={styles.skipNote}>
           You can still try the demo — signing in just lets Pro polish your actual recording.
         </Text>
+      </Screen>
+    );
+  }
+
+  // ── step 1: keyboard setup (first setup step; auto-skips when already done) ──
+  if (step === 'keyboard') {
+    const kbDone = kbInstalled && kbFullAccess;
+    const ios = Platform.OS === 'ios';
+    return (
+      <Screen>
+        <View style={styles.hero}>
+          <LinearGradient colors={[...brandGradient]} style={styles.heroIcon}>
+            <Ionicons name={kbDone ? 'checkmark-circle' : 'apps'} size={26} color="#fff" />
+          </LinearGradient>
+          <Text style={Type.title}>{kbDone ? "Keyboard's ready 🎉" : 'Set up the keyboard'}</Text>
+          <Text style={[Type.subtitle, { marginTop: 6 }]}>
+            {kbDone
+              ? 'The VibeFlow keyboard is enabled with Full Access. Tap the 🌐 globe in any app to switch to it, then the mic to dictate.'
+              : ios
+                ? "A one-time setup so you can type by voice in any app. I'll confirm each step as you go."
+                : 'Turn on the VibeFlow keyboard and switch to it, so you can type by voice in any app.'}
+          </Text>
+        </View>
+
+        {kbDone ? null : (
+          <Card style={{ gap: 4 }}>
+            <KbStep
+              done={kbInstalled}
+              title={ios ? 'Add the VibeFlow keyboard' : 'Turn on the VibeFlow keyboard'}
+              sub={ios
+                ? 'Settings → General → Keyboard → Add New Keyboard → VibeFlow'
+                : 'Languages & input → On-screen keyboard → Manage keyboards → VibeFlow.'}
+            />
+            <KbStep
+              done={kbFullAccess}
+              active={kbInstalled}
+              title={ios ? 'Turn on Allow Full Access' : 'Switch to VibeFlow'}
+              sub={ios
+                ? 'Tap VibeFlow → Allow Full Access → Allow. Lets the mic dictate & type in any app.'
+                : 'Use the 🌐 switcher to choose VibeFlow.'}
+            />
+          </Card>
+        )}
+
+        <View style={{ height: 20 }} />
+        {kbDone ? (
+          <PrimaryButton label="Continue" icon="arrow-forward" onPress={() => { haptic.tap(); setStep('profile'); }} />
+        ) : (
+          <>
+            <PrimaryButton
+              label={ios ? 'Open iOS Settings' : 'Open keyboard settings'}
+              icon="settings-outline"
+              onPress={openKbSettings}
+            />
+            <GhostButton label="I'll do this later" onPress={() => { haptic.tap(); setStep('profile'); }} style={{ marginTop: 6 }} />
+          </>
+        )}
       </Screen>
     );
   }
@@ -353,8 +568,42 @@ export function PersonalizedDemoScreen() {
 
         <Card style={{ gap: 16 }}>
           <TextField label="Your name" value={name} onChangeText={setName} placeholder="Alex Rivera" autoCapitalize="words" autoFocus />
-          <TextField label="Job title" value={role} onChangeText={setRole} placeholder="Product Manager" autoCapitalize="words" />
+          <View>
+            <Text style={styles.occLabel}>WHAT DO YOU DO?</Text>
+            <View style={styles.occGrid}>
+              {OCCUPATIONS.map((occ) => {
+                const sel = !otherMode && role === occ;
+                return (
+                  <Pressable
+                    key={occ}
+                    onPress={() => { haptic.tap(); setOtherMode(false); setRole(occ); }}
+                    style={[styles.occChip, sel && styles.occChipSel]}
+                  >
+                    <Text style={[styles.occChipText, sel && styles.occChipTextSel]}>{occ}</Text>
+                  </Pressable>
+                );
+              })}
+              <Pressable
+                onPress={() => { haptic.tap(); setOtherMode(true); if (OCCUPATIONS.includes(role)) setRole(''); }}
+                style={[styles.occChip, otherMode && styles.occChipSel]}
+              >
+                <Text style={[styles.occChipText, otherMode && styles.occChipTextSel]}>Other…</Text>
+              </Pressable>
+            </View>
+            {otherMode ? (
+              <View style={{ marginTop: 12 }}>
+                <TextField label="Your occupation" value={role} onChangeText={setRole} placeholder="e.g. Architect" autoCapitalize="words" autoFocus />
+              </View>
+            ) : null}
+          </View>
         </Card>
+
+        {signedIn ? (
+          <View style={styles.syncedRow}>
+            <Ionicons name="lock-closed" size={12} color={Colors.brand} />
+            <Text style={styles.syncedText}>Synced to your account</Text>
+          </View>
+        ) : null}
 
         <View style={{ height: 20 }} />
         <PrimaryButton label="Continue" icon="arrow-forward" onPress={toPermissions} disabled={!name.trim()} />
@@ -547,6 +796,22 @@ function PermRow({ icon, title, sub }: { icon: keyof typeof Ionicons.glyphMap; t
   );
 }
 
+// One row of the keyboard-setup checklist: a status dot (done ✓ / active / pending)
+// plus a title + hint. The dots light up live as the user completes each step.
+function KbStep({ done, active, title, sub }: { done: boolean; active?: boolean; title: string; sub: string }) {
+  return (
+    <View style={styles.kbStep}>
+      <View style={[styles.kbDot, done ? styles.kbDotDone : active ? styles.kbDotActive : null]}>
+        {done ? <Ionicons name="checkmark" size={13} color={Colors.background} /> : null}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.permTitle, !done && !active ? { color: Colors.inkSoft } : null]}>{title}</Text>
+        <Text style={styles.permSub}>{sub}</Text>
+      </View>
+    </View>
+  );
+}
+
 function MicOrb({ listening, level, onPress }: { listening: boolean; level: number; onPress: () => void }) {
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -604,6 +869,27 @@ const styles = StyleSheet.create({
   permIcon: { width: 38, height: 38, borderRadius: 11, backgroundColor: Colors.chipBg, alignItems: 'center', justifyContent: 'center' },
   permTitle: { color: Colors.ink, fontSize: 15, fontWeight: '600' },
   permSub: { color: Colors.inkSoft, fontSize: 13, marginTop: 1 },
+
+  // Returning-user avatar (sign-in "welcome back").
+  avatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: Colors.brand, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  avatarText: { color: Colors.onBrand, fontSize: 26, fontWeight: '800' },
+
+  // Keyboard-setup checklist rows.
+  kbStep: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 10 },
+  kbDot: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: Colors.outline, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  kbDotActive: { borderColor: Colors.brand },
+  kbDotDone: { backgroundColor: Colors.success, borderColor: Colors.success },
+
+  // Occupation picker.
+  occLabel: { color: Colors.inkFaint, fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginBottom: 10 },
+  occGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  occChip: { paddingHorizontal: 13, height: 36, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.chipBg, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.outline },
+  occChipSel: { backgroundColor: Colors.brand, borderColor: Colors.brand },
+  occChipText: { color: Colors.inkSoft, fontSize: 13.5, fontWeight: '600' },
+  occChipTextSel: { color: Colors.onBrand },
+
+  syncedRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12, justifyContent: 'center' },
+  syncedText: { color: Colors.brand, fontSize: 12, fontWeight: '600' },
 
   tabs: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   tab: {
