@@ -225,6 +225,45 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     private let keyPreviewLabel = UILabel()
     private var keyPreviewHideTimer: Timer?
 
+    // Long-press accent callout (é/ñ/ü + alternate punctuation), Apple-style: hold a key
+    // to reveal a row of variants, slide to the one you want, lift to insert it.
+    private let accentCallout = UIView()
+    private var accentItemLabels: [UILabel] = []
+    private var accentValues: [String] = []   // strings each item inserts, already cased
+    private var accentBaseChar = ""           // the base char inserted on touch-down (to replace)
+    private var accentSelected = 0            // index of the highlighted item (0 == base)
+    private let accentHaptic = UISelectionFeedbackGenerator()
+
+    /// Alternate characters revealed by long-pressing a key. Letters map to their accented
+    /// forms; a handful of punctuation/symbol keys map to related marks — matching what the
+    /// stock iOS keyboard offers. Keys are lowercase bases; case is applied at insert time.
+    private static let accentMap: [String: [String]] = [
+        // Letters
+        "a": ["à", "á", "â", "ä", "æ", "ã", "å", "ā"],
+        "c": ["ç", "ć", "č"],
+        "e": ["è", "é", "ê", "ë", "ē", "ė", "ę"],
+        "i": ["î", "ï", "í", "ī", "į", "ì"],
+        "l": ["ł"],
+        "n": ["ñ", "ń"],
+        "o": ["ô", "ö", "ò", "ó", "œ", "ø", "ō", "õ"],
+        "s": ["ß", "ś", "š"],
+        "u": ["û", "ü", "ù", "ú", "ū"],
+        "y": ["ÿ"],
+        "z": ["ž", "ź", "ż"],
+        // Punctuation & symbols
+        "-": ["–", "—", "•"],
+        "/": ["\\"],
+        "$": ["€", "£", "¥", "₩", "₹", "¢"],
+        "&": ["§"],
+        "\"": ["\u{201C}", "\u{201D}", "\u{201E}", "«", "»"],
+        "'": ["\u{2018}", "\u{2019}", "`"],
+        ".": ["…"],
+        "?": ["¿"],
+        "!": ["¡"],
+        "%": ["‰"],
+        "=": ["≠", "≈"],
+    ]
+
     // MARK: Appearance-aware colors
     private var isDark: Bool { textDocumentProxy.keyboardAppearance == .dark || traitCollection.userInterfaceStyle == .dark }
     private var kbBackground: UIColor { isDark ? UIColor(white: 0.09, alpha: 1) : UIColor(red: 0.82, green: 0.84, blue: 0.86, alpha: 1) }
@@ -388,6 +427,16 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         keyPreviewLabel.font = .systemFont(ofSize: 32, weight: .medium)
         keyPreview.addSubview(keyPreviewLabel)
         view.addSubview(keyPreview)
+
+        // Accent callout (shares the balloon look; laid out on demand).
+        accentCallout.layer.cornerRadius = 10
+        accentCallout.layer.shadowColor = UIColor.black.cgColor
+        accentCallout.layer.shadowOpacity = 0.3
+        accentCallout.layer.shadowRadius = 6
+        accentCallout.layer.shadowOffset = CGSize(width: 0, height: 2)
+        accentCallout.isHidden = true
+        accentCallout.isUserInteractionEnabled = false
+        view.addSubview(accentCallout)
 
         updateSuggestions()
     }
@@ -737,6 +786,14 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
             }, for: .touchDown)
         }
         b.addTarget(self, action: #selector(hideKeyPreview), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        // Long-press → accent callout, for any key that has alternates. The base char is
+        // still inserted on touch-down (fast typing); a completed slide replaces it.
+        if Self.accentMap[base.lowercased()] != nil {
+            b.accessibilityIdentifier = base       // so the gesture can recover the base
+            let lp = UILongPressGestureRecognizer(target: self, action: #selector(handleAccentLongPress(_:)))
+            lp.minimumPressDuration = 0.28
+            b.addGestureRecognizer(lp)
+        }
         return b
     }
 
@@ -766,6 +823,119 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         keyPreviewHideTimer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: false) { [weak self] _ in
             self?.keyPreview.isHidden = true
         }
+    }
+
+    // MARK: - Accent callout (long-press for é / ñ / ü …)
+
+    /// Uppercase a variant only when the result stays a single character, so shift-holding
+    /// "s" → "Š" works but never turns ß into "SS".
+    private func casedVariant(_ v: String, upper: Bool) -> String {
+        guard upper else { return v }
+        let u = v.uppercased()
+        return u.count == v.count ? u : v
+    }
+
+    @objc private func handleAccentLongPress(_ g: UILongPressGestureRecognizer) {
+        guard let key = g.view as? KeyButton, let base = key.accessibilityIdentifier else { return }
+        switch g.state {
+        case .began:
+            showAccentCallout(over: key, base: base)
+        case .changed:
+            guard !accentCallout.isHidden else { return }
+            updateAccentSelection(g.location(in: view))
+        case .ended:
+            commitAccentSelection()
+        default:
+            hideAccentCallout()
+        }
+    }
+
+    private func showAccentCallout(over key: KeyButton, base: String) {
+        guard let variants = Self.accentMap[base.lowercased()] else { return }
+        keyPreview.isHidden = true
+
+        // Match the case of the char just inserted on touch-down.
+        let upper = textDocumentProxy.documentContextBeforeInput?.last?.isUppercase ?? false
+        accentBaseChar = casedVariant(base, upper: upper)
+        accentValues = ([base] + variants).map { casedVariant($0, upper: upper) }
+
+        accentItemLabels.forEach { $0.removeFromSuperview() }
+        accentItemLabels.removeAll()
+
+        let itemW: CGFloat = 40, itemH: CGFloat = 44, pad: CGFloat = 5
+        let totalW = itemW * CGFloat(accentValues.count) + pad * 2
+        let calloutH = itemH + pad * 2
+        for (i, v) in accentValues.enumerated() {
+            let lbl = UILabel(frame: CGRect(x: pad + CGFloat(i) * itemW, y: pad, width: itemW, height: itemH))
+            lbl.textAlignment = .center
+            lbl.font = .systemFont(ofSize: 24)
+            lbl.text = v
+            lbl.layer.cornerRadius = 6
+            lbl.layer.masksToBounds = true
+            accentCallout.addSubview(lbl)
+            accentItemLabels.append(lbl)
+        }
+
+        // Sit the base item over the key, then clamp the whole row inside the keyboard.
+        let keyFrame = key.convert(key.bounds, to: view)
+        var x = keyFrame.midX - (pad + itemW / 2)
+        x = min(max(2, x), max(2, view.bounds.width - totalW - 2))
+        let y = max(2, keyFrame.minY - calloutH - 4)
+        accentCallout.frame = CGRect(x: x, y: y, width: totalW, height: calloutH)
+        accentCallout.backgroundColor = keyColor
+        accentCallout.isHidden = false
+        view.bringSubviewToFront(accentCallout)
+
+        accentSelected = 0
+        styleAccentItems()
+        accentHaptic.prepare()
+        keyHaptic.impactOccurred(intensity: 0.7)
+    }
+
+    private func updateAccentSelection(_ pointInView: CGPoint) {
+        guard !accentItemLabels.isEmpty else { return }
+        var best = 0
+        var bestDist = CGFloat.greatestFiniteMagnitude
+        for (i, lbl) in accentItemLabels.enumerated() {
+            let f = accentCallout.convert(lbl.frame, to: view)
+            let d = abs(f.midX - pointInView.x)
+            if d < bestDist { bestDist = d; best = i }
+        }
+        if best != accentSelected {
+            accentSelected = best
+            styleAccentItems()
+            accentHaptic.selectionChanged()
+        }
+    }
+
+    private func styleAccentItems() {
+        for (i, lbl) in accentItemLabels.enumerated() {
+            let on = (i == accentSelected)
+            lbl.backgroundColor = on ? brand : .clear
+            lbl.textColor = on ? .white : inkColor
+        }
+    }
+
+    private func commitAccentSelection() {
+        defer { hideAccentCallout() }
+        // Index 0 is the base char, already inserted on touch-down — nothing to do.
+        guard accentSelected > 0, accentSelected < accentValues.count else { return }
+        // Replace the base char with the chosen variant.
+        if let last = textDocumentProxy.documentContextBeforeInput?.last,
+           String(last).lowercased() == accentBaseChar.lowercased() {
+            textDocumentProxy.deleteBackward()
+        }
+        textDocumentProxy.insertText(accentValues[accentSelected])
+        keyHaptic.impactOccurred(intensity: 0.6)
+        scheduleSuggestions()
+    }
+
+    private func hideAccentCallout() {
+        accentCallout.isHidden = true
+        accentItemLabels.forEach { $0.removeFromSuperview() }
+        accentItemLabels.removeAll()
+        accentValues.removeAll()
+        accentSelected = 0
     }
 
     private func specialKey(title: String? = nil, systemImage: String? = nil) -> KeyButton {
