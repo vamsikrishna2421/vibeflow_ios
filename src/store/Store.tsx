@@ -44,7 +44,7 @@ function uid(): number {
 
 type Action =
   | { type: 'HYDRATE'; payload: PersistedState }
-  | { type: 'ADD_DICTATION'; text: string }
+  | { type: 'ADD_DICTATION'; text: string; raw?: string }
   | { type: 'EDIT_DICTATION'; id: number; text: string }
   | { type: 'TOGGLE_PIN'; id: number }
   | { type: 'DELETE_DICTATION'; id: number }
@@ -75,7 +75,16 @@ function reducer(state: State, action: Action): State {
     case 'ADD_DICTATION': {
       const text = action.text.trim();
       if (!text) return state;
-      const entry: Dictation = { id: uid(), text, createdAt: Date.now(), pinned: false };
+      // Keep the raw transcription only when it actually differs from the saved text,
+      // so History can show a meaningful "as heard" comparison (and we don't bloat entries).
+      const raw = action.raw?.trim();
+      const entry: Dictation = {
+        id: uid(),
+        text,
+        raw: raw && raw !== text ? raw : undefined,
+        createdAt: Date.now(),
+        pinned: false,
+      };
       return { ...state, history: [entry, ...state.history].slice(0, HISTORY_CAP) };
     }
 
@@ -173,7 +182,7 @@ function reducer(state: State, action: Action): State {
 }
 
 export interface StoreActions {
-  addDictation(text: string): void;
+  addDictation(text: string, raw?: string): void;
   editDictation(id: number, text: string): void;
   togglePin(id: number): void;
   deleteDictation(id: number): void;
@@ -285,7 +294,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const actions = useMemo<StoreActions>(
     () => ({
-      addDictation: (text) => dispatch({ type: 'ADD_DICTATION', text }),
+      addDictation: (text, raw) => dispatch({ type: 'ADD_DICTATION', text, raw }),
       editDictation: (id, text) => dispatch({ type: 'EDIT_DICTATION', id, text }),
       togglePin: (id) => dispatch({ type: 'TOGGLE_PIN', id }),
       deleteDictation: (id) => dispatch({ type: 'DELETE_DICTATION', id }),

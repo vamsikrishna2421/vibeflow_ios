@@ -82,6 +82,9 @@ export function TalkScreen() {
   }, []);
   const draftRef = useRef('');
   draftRef.current = draft;
+  // The accumulated RAW device transcription for the current draft, saved alongside the
+  // formatted text so History can show "as heard" vs the formatted/AI version.
+  const rawDraftRef = useRef('');
   // True for the whole keyboard-initiated visit (vibeflow://record → until the app
   // backgrounds): every dictation in the visit is saved for the keyboard to type.
   const fromKeyboardRef = useRef(false);
@@ -117,6 +120,7 @@ export function TalkScreen() {
       if (!outcome.text) return;
       const next = draftRef.current ? draftRef.current + outcome.text : outcome.text;
       setDraft(next);
+      rawDraftRef.current = rawDraftRef.current ? `${rawDraftRef.current} ${raw}` : raw;
       setBurstNonce((n) => n + 1);
       if (settings.haptics) haptic.success();
       // Flow-session utterance (keyboard mic, app in background): hand ONLY this
@@ -127,7 +131,7 @@ export function TalkScreen() {
       if (fromKeyboardRef.current) {
         setItem('latest_dictation', next.trim());
         setItem('latest_dictation_ts', String(Date.now()));
-        addDictation(next.trim());
+        addDictation(next.trim(), rawDraftRef.current.trim());
         if (!sessionActiveRef.current) {
           const started = startFlowSession();
           if (!started) {
@@ -276,7 +280,7 @@ export function TalkScreen() {
             delivered = true;
           }
         }
-        addDictationRef.current(finalText);
+        addDictationRef.current(finalText, text);
         } catch {
           // A throw anywhere above must NEVER eat a dictation (we've already
           // claimed it, which silences the native raw fallback): deliver the raw
@@ -463,7 +467,7 @@ export function TalkScreen() {
     flashToast('Copied to clipboard');
   };
   const onSave = () => {
-    addDictation(draft.trim());
+    addDictation(draft.trim(), rawDraftRef.current.trim());
     if (settings.haptics) haptic.success();
     flashToast(
       Platform.OS === 'ios'
@@ -471,9 +475,11 @@ export function TalkScreen() {
         : 'Saved to your history',
     );
     setDraft('');
+    rawDraftRef.current = '';
   };
   const onClear = () => {
     setDraft('');
+    rawDraftRef.current = '';
     haptic.tap();
   };
 

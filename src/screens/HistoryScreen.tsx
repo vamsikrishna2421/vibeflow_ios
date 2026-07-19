@@ -380,6 +380,13 @@ export function HistoryScreen() {
                     {item.text}
                   </Text>
 
+                  {expandedId === item.id && item.raw ? (
+                    <View style={styles.rawBlock}>
+                      <Text style={styles.rawLabel}>AS HEARD · RAW TRANSCRIPTION</Text>
+                      <Text style={styles.rawText}>{item.raw}</Text>
+                    </View>
+                  ) : null}
+
                   {expandedId === item.id ? (
                     <View style={styles.reformatRow}>
                       {REFORMATS.map((rf) => (
@@ -492,6 +499,15 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
   },
   entryText: { color: Colors.ink, fontSize: 15.5, lineHeight: 22.5 },
+  rawBlock: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.hairline,
+    gap: 4,
+  },
+  rawLabel: { color: Colors.inkFaint, fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+  rawText: { color: Colors.inkSoft, fontSize: 14, lineHeight: 20 },
   reformatRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   reformatChip: {
     flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, height: 32,

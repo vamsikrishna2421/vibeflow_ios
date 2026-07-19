@@ -9,6 +9,9 @@ import { CurationOptions, defaultCurationOptions, RoutingMode } from '@/core';
 export interface Dictation {
   id: number;
   text: string;
+  /** The device's raw transcription before local/AI formatting — so History can show
+   *  the "as heard" version next to the formatted one. Absent on older entries. */
+  raw?: string;
   createdAt: number;
   pinned: boolean;
 }
