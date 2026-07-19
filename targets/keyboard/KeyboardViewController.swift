@@ -54,7 +54,9 @@ final class GapForgivingStack: UIStackView {
 /// Voice: iOS forbids recording inside a keyboard extension, so the mic opens the
 /// VibeFlow app to capture speech (this needs "Allow Full Access"); when you switch
 /// back, the keyboard auto-types the dictation the app just saved to the App Group.
-final class KeyboardViewController: UIInputViewController {
+final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedback {
+    /// Enables the standard iOS key-click sound (respects the user's Keyboard Clicks setting).
+    var enableInputClicksWhenVisible: Bool { true }
 
     // MARK: App Group hand-off
     private let appGroup = "group.com.vibeflow.dictation"
@@ -99,6 +101,15 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private let brand = UIColor(red: 0.486, green: 0.361, blue: 1.0, alpha: 1) // #7C5CFF
+
+    /// The "feel" of a real keyboard: the system key-click + a light haptic on every key.
+    /// (Haptics fire only with Full Access — which the mic needs anyway; the click always
+    /// plays, honoring the user's setting.) Prepared on appearance for low latency.
+    private let keyHaptic = UIImpactFeedbackGenerator(style: .light)
+    private func keyFeedback() {
+        UIDevice.current.playInputClick()
+        keyHaptic.impactOccurred(intensity: 0.6)
+    }
 
     // MARK: State
     private enum ShiftState { case off, on, locked }
@@ -810,6 +821,7 @@ final class KeyboardViewController: UIInputViewController {
     // MARK: - Key actions
 
     private func charTapped(_ base: String) {
+        keyFeedback()
         textDocumentProxy.insertText(shift == .off ? base : base.uppercased())
         if shift == .on {
             shift = .off                   // consume one-shot shift…
@@ -820,6 +832,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     @objc private func shiftTapped() {
+        keyFeedback()
         let now = Date()
         if now.timeIntervalSince(lastShiftTap) < 0.3 { shift = .locked }
         else { shift = (shift == .off) ? .on : .off }
@@ -828,6 +841,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func spaceTapped() {
+        keyFeedback()
         autocorrectCurrentWord()
         learnCommittedWord(currentWord())
         let now = Date()
@@ -873,6 +887,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     @objc private func backspaceDown() {
+        keyFeedback()
         textDocumentProxy.deleteBackward()
         backspaceTimer?.invalidate()
         backspaceTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
@@ -888,6 +903,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func insert(_ text: String) {
+        keyFeedback()
         // A single non-letter key (punctuation, return) ends the word in progress —
         // learn it exactly as the user left it.
         if page == .letters, text.count == 1, let ch = text.first, !ch.isLetter, ch != "'" {
