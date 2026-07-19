@@ -36,6 +36,10 @@ public class VibeflowFlowSessionModule: Module {
   static let toggleName = "com.vibeflow.flow.toggle"
   static let resultName = "com.vibeflow.flow.result"
   static let statusName = "com.vibeflow.flow.status"
+  static let partialName = "com.vibeflow.flow.partial"
+  // SFSpeech partials fire many times/sec; throttle the cross-process ping so the
+  // keyboard's live tail-line updates smoothly without a wakeup per partial.
+  private var lastPartialPostTs: TimeInterval = 0
 
   private var engine: AVAudioEngine?
   private var player: AVAudioPlayerNode?
@@ -350,6 +354,12 @@ public class VibeflowFlowSessionModule: Module {
         if let text, !text.trimmingCharacters(in: .whitespaces).isEmpty {
           self.segmentTexts[seq] = text
           self.group?.set(self.joinedTranscript(), forKey: "flow_partial")
+          // Live signal to the keyboard's tail-line (throttled — see lastPartialPostTs).
+          let now = ProcessInfo.processInfo.systemUptime
+          if now - self.lastPartialPostTs >= 0.1 {
+            self.lastPartialPostTs = now
+            Self.post(Self.partialName)
+          }
         }
         if isFinal || failed {
           self.segmentEnded(seq, gen: gen)

@@ -70,6 +70,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
     private let flowToggleName = "com.vibeflow.flow.toggle"
     private let flowResultName = "com.vibeflow.flow.result"
     private let flowStatusName = "com.vibeflow.flow.status"
+    private let flowPartialName = "com.vibeflow.flow.partial"
     /// Mic key state, driven by taps (optimistic) + status pings from the app.
     private enum FlowMicState { case idle, listening, processing }
     private var flowMicState: FlowMicState = .idle
@@ -214,6 +215,10 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
     // MARK: Views / tracking
     private var suggestionsStack: UIStackView!
+    /// The live dictation transcript shown in the strip (left of the mic) while
+    /// recording — newest words bright next to the mic, older words dim + truncated
+    /// off the left, a caret trailing. Display-only; nothing is inserted mid-dictation.
+    private let tailLabel = UILabel()
     private var rowsStack: UIStackView!
     private var letterButtons: [KeyButton] = []   // a–z keys, re-titled on shift
     private var shiftButton: KeyButton?
@@ -438,6 +443,14 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         accentCallout.isUserInteractionEnabled = false
         view.addSubview(accentCallout)
 
+        // Live tail-line: right-aligned so the newest words sit next to the mic, and
+        // head-truncated so older words slide off the left as you keep talking.
+        tailLabel.textAlignment = .right
+        tailLabel.lineBreakMode = .byTruncatingHead
+        tailLabel.font = .systemFont(ofSize: 15)
+        tailLabel.isAccessibilityElement = true
+        tailLabel.accessibilityLabel = "Live transcript"
+
         updateSuggestions()
     }
 
@@ -495,7 +508,7 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         }
         let title: String
         switch flowMicState {
-        case .listening:  title = "● Listening — speak, tap 🎤 to finish"
+        case .listening:  installTailLine(); return   // live transcript takes over the strip
         case .processing: title = "✨ Working on your words…"
         case .idle:
             let status = groupString("kbd_flow_status") ?? ""
@@ -520,6 +533,41 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         let hint = suggestionButton(title: title, faint: flowMicState == .idle)
         hint.addAction(UIAction { [weak self] _ in self?.micTapped() }, for: .touchUpInside)
         suggestionsStack.addArrangedSubview(hint)
+    }
+
+    // MARK: - Live transcript tail-line
+
+    /// Put the live transcript into the strip (replacing predictions while recording).
+    private func installTailLine() {
+        suggestionsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        tailLabel.attributedText = tailAttributed(groupString("flow_partial") ?? "")
+        suggestionsStack.addArrangedSubview(tailLabel)
+    }
+
+    /// App pushed a new partial transcript → refresh the tail-line (only while listening).
+    @objc private func flowPartialChanged() {
+        guard flowMicState == .listening else { return }
+        if tailLabel.superview == nil { installTailLine(); return }
+        tailLabel.attributedText = tailAttributed(groupString("flow_partial") ?? "")
+    }
+
+    /// Newest word bright, everything before it dim (reads as "trailing off"), a brand
+    /// caret to signal it's live. Empty → a gentle listening placeholder.
+    private func tailAttributed(_ raw: String) -> NSAttributedString {
+        let font = UIFont.systemFont(ofSize: 15)
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty {
+            return NSAttributedString(string: "● Listening…", attributes: [.foregroundColor: faintInk, .font: font])
+        }
+        let out = NSMutableAttributedString()
+        if let sp = text.range(of: " ", options: .backwards) {
+            out.append(NSAttributedString(string: String(text[..<sp.upperBound]), attributes: [.foregroundColor: faintInk, .font: font]))
+            out.append(NSAttributedString(string: String(text[sp.upperBound...]), attributes: [.foregroundColor: inkColor, .font: font]))
+        } else {
+            out.append(NSAttributedString(string: text, attributes: [.foregroundColor: inkColor, .font: font]))
+        }
+        out.append(NSAttributedString(string: " ▏", attributes: [.foregroundColor: brand, .font: font]))
+        return out
     }
 
     /// No word in progress → predict the NEXT word from sentence context: bigrams
@@ -1242,6 +1290,11 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
             let kb = Unmanaged<KeyboardViewController>.fromOpaque(observer).takeUnretainedValue()
             DispatchQueue.main.async { kb.flowStatusChanged() }
         }, flowStatusName as CFString, nil, .deliverImmediately)
+        CFNotificationCenterAddObserver(center, observer, { _, observer, _, _, _ in
+            guard let observer = observer else { return }
+            let kb = Unmanaged<KeyboardViewController>.fromOpaque(observer).takeUnretainedValue()
+            DispatchQueue.main.async { kb.flowPartialChanged() }
+        }, flowPartialName as CFString, nil, .deliverImmediately)
     }
 
     private func insertFlowResult() {
@@ -1276,7 +1329,13 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         default:           flowMicState = .idle   // includes "error: …"
         }
         applyMicAppearance()
-        if flowMicState == .listening { startCountdownBar() } else { hideCountdownBar() }
+        if flowMicState == .listening {
+            startCountdownBar()
+            installTailLine()              // the live transcript takes over the strip
+        } else {
+            hideCountdownBar()
+            updateSuggestions()            // strip returns to predictions/recents/processing
+        }
         if status.hasPrefix("error"), currentWord().isEmpty {
             showIdleSuggestions()          // surface the error text in the strip
         }
