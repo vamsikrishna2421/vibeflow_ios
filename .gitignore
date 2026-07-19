@@ -45,7 +45,6 @@ coverage/
 ruflo.config.*
 
 # Use npm install (+.npmrc) on EAS instead of npm ci; lockfile omitted intentionally
-package-lock.json
 credentials/
 ios/Pods/
 ios/build/
