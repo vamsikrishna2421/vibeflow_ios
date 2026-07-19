@@ -426,6 +426,13 @@ final class KeyboardViewController: UIInputViewController {
     /// typing path cost keystrokes.)
     private func showIdleSuggestions() {
         suggestionsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        // The mic hops to the app / uses the network, which a keyboard extension can only
+        // do with "Allow Full Access". Without it the mic would just sit dead — so say so
+        // clearly (the user shouldn't have to guess why nothing happens).
+        if !hasFullAccess {
+            suggestionsStack.addArrangedSubview(fullAccessHint())
+            return
+        }
         let title: String
         switch flowMicState {
         case .listening:  title = "● Listening — speak, tap 🎤 to finish"
@@ -522,6 +529,22 @@ final class KeyboardViewController: UIInputViewController {
         b.titleLabel?.font = .systemFont(ofSize: 15)
         b.titleLabel?.adjustsFontSizeToFitWidth = true
         b.titleLabel?.minimumScaleFactor = 0.8
+        return b
+    }
+
+    /// A clear two-line prompt shown in the strip when the keyboard lacks Full Access —
+    /// the mic needs it, so tell the user exactly where to turn it on (never sit silent).
+    private func fullAccessHint() -> UIButton {
+        let b = UIButton(type: .system)
+        b.setTitle("⚠️  Turn on “Allow Full Access” to use the mic\nSettings ▸ General ▸ Keyboard ▸ Keyboards ▸ VibeFlow", for: .normal)
+        b.setTitleColor(inkColor, for: .normal)
+        b.titleLabel?.numberOfLines = 2
+        b.titleLabel?.textAlignment = .center
+        b.titleLabel?.lineBreakMode = .byTruncatingTail
+        b.titleLabel?.font = .systemFont(ofSize: 11, weight: .medium)
+        b.titleLabel?.adjustsFontSizeToFitWidth = true
+        b.titleLabel?.minimumScaleFactor = 0.75
+        b.addAction(UIAction { [weak self] _ in self?.updateSuggestions() }, for: .touchUpInside)
         return b
     }
 
@@ -902,6 +925,9 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func micTapped() {
+        // No Full Access → the mic can't hop to the app or reach the network, so it would
+        // just sit dead. Surface the "enable Full Access" prompt instead of failing silently.
+        guard hasFullAccess else { updateSuggestions(); return }
         // Flow Session alive (Dynamic Island showing)? Record right here — no hop.
         if flowSessionAlive {
             let wasIdle = flowMicState == .idle
