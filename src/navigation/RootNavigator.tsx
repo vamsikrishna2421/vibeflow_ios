@@ -16,6 +16,15 @@ import { KeyboardSetupScreen } from '@/screens/KeyboardSetupScreen';
 import { PaywallScreen } from '@/screens/PaywallScreen';
 import { PersonalizedDemoScreen } from '@/screens/PersonalizedDemoScreen';
 import { SettingsScreen } from '@/screens/SettingsScreen';
+import {
+  AboutSettings,
+  AppearanceSettings,
+  DictionarySettings,
+  FormattingSettings,
+  OutputSettings,
+  RecognitionSettings,
+  SmartFormatSettings,
+} from '@/screens/SettingsDetail';
 import { SnippetsScreen } from '@/screens/SnippetsScreen';
 import { TalkScreen } from '@/screens/TalkScreen';
 import { VocabularyScreen } from '@/screens/VocabularyScreen';
@@ -30,6 +39,13 @@ const STACK_SCREENS: Record<StackRoute, React.ComponentType> = {
   keyboardSetup: KeyboardSetupScreen,
   paywall: PaywallScreen,
   about: AboutScreen,
+  settingsRecognition: RecognitionSettings,
+  settingsFormatting: FormattingSettings,
+  settingsSmartFormat: SmartFormatSettings,
+  settingsOutput: OutputSettings,
+  settingsDictionary: DictionarySettings,
+  settingsAppearance: AppearanceSettings,
+  settingsAbout: AboutSettings,
 };
 
 const TABS: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [

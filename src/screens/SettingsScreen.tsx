@@ -1,51 +1,34 @@
 /**
- * Settings — the control room. Every knob VibeFlow exposes lives here, grouped
- * into calm, scannable cards (Recognition, Formatting, Output, Smart formatting,
- * Personalise, Keyboard, About) so the long list never feels heavy.
- *
- * Recognition + formatting toggles write straight into the store; the language
- * picker is an in-place bottom sheet; Smart formatting is gated behind Pro.
+ * Settings — the top-level control room. Instead of one long scroll of every knob,
+ * this is now a short MENU: the Pro banner + account stay pinned on top, and each
+ * group (Recognition, Formatting, Output, …) is a row that opens its own focused
+ * detail screen (see SettingsDetail.tsx). Nothing was removed — just regrouped.
  */
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useState } from 'react';
-import * as Updates from 'expo-updates';
-import { Alert, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PRO_ENABLED } from '@/config/features';
-import { CurationOptions } from '@/core';
 import { useAuth } from '@/hooks/useAuth';
-import { deleteAccount, signInWithApple, signInWithGoogle, signOut } from '@/services/auth';
+import { signInWithApple, signInWithGoogle, signOut } from '@/services/auth';
 import { fetchQuota, quotaLabel, Quota } from '@/services/quota';
 import { useNav } from '@/navigation/nav';
-import { LANGUAGES, languageLabel, useStore } from '@/store';
-import { getItem, removeItem, setItem } from '@/store/appGroup';
-import { prefGet, prefRemove, prefSet } from '@/store/prefs';
-// True only in a build that actually bundles the Android IME native module. Lets
-// interim OTAs ship safely: the keyboard section stays hidden on Android builds
-// that don't have the keyboard yet, and lights up automatically once one does.
+import { useStore } from '@/store';
+import { getItem } from '@/store/appGroup';
+import { prefGet } from '@/store/prefs';
+// True only in a build that actually bundles the Android IME native module — keeps the
+// Keyboard row hidden on Android builds that don't have the keyboard yet.
 import { isAvailable as androidKeyboardAvailable } from '@/services/keyboard';
-import { Colors, Radius, Spacing } from '@/theme/colors';
-import {
-  Badge,
-  Card,
-  Divider,
-  NavRow,
-  Screen,
-  SectionTitle,
-  ToggleRow,
-  Type,
-  haptic,
-} from '@/ui/kit';
+import { Colors, Radius } from '@/theme/colors';
+import { Card, Divider, NavRow, Screen, Type, haptic } from '@/ui/kit';
 
 export function SettingsScreen() {
-  const { settings, updateSettings, premium, snippets, vocabulary, corrections, replayDemo } = useStore();
+  const { premium } = useStore();
   const { push } = useNav();
-  const [langOpen, setLangOpen] = useState(false);
   const { signedIn, email } = useAuth();
   const [authBusy, setAuthBusy] = useState(false);
-  // Live "N free left" readout — RLS read, consumes nothing. Refreshes on sign-in
-  // and each time Settings mounts.
+  // Live "N free left" readout — RLS read, consumes nothing.
   const [quota, setQuota] = useState<Quota | null>(null);
   useEffect(() => {
     if (!signedIn) {
@@ -58,6 +41,7 @@ export function SettingsScreen() {
       alive = false;
     };
   }, [signedIn]);
+
   const runAuth = (fn: () => Promise<void>) => async () => {
     if (authBusy) return;
     setAuthBusy(true);
@@ -66,74 +50,14 @@ export function SettingsScreen() {
       haptic.success();
     } catch (e: any) {
       haptic.warning();
-      // Surface the REAL failure — a silent catch here hid a failed token exchange
-      // behind a successful-looking Apple sheet.
       const msg = e?.message ?? e?.error_description ?? String(e);
       if (!/cancell?ed|1001/i.test(msg)) Alert.alert('Sign-in failed', msg);
     } finally {
       setAuthBusy(false);
     }
   };
-  // Account deletion (App Store 5.1.1(v) + Play requirement). Two-step: a
-  // destructive confirm, then a server wipe of the account + all data, then a
-  // local sign-out. We also remind the user that it doesn't cancel a store sub.
-  const confirmDeleteAccount = () => {
-    if (authBusy) return;
-    haptic.warning();
-    Alert.alert(
-      'Delete account?',
-      "This permanently deletes your VibeFlow account and all your data — profile, usage history and device list. This can't be undone.\n\nIf you have a paid subscription, cancel it separately in the App Store or Play Store; deleting your account here doesn't cancel it.",
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setAuthBusy(true);
-            try {
-              await deleteAccount();
-              haptic.success();
-              Alert.alert('Account deleted', 'Your account and data have been removed.');
-            } catch (e: any) {
-              haptic.warning();
-              Alert.alert("Couldn't delete account", e?.message ?? String(e));
-            } finally {
-              setAuthBusy(false);
-            }
-          },
-        },
-      ],
-    );
-  };
-  // Appearance: explicit choice persisted in the App Group; styles resolve at JS
-  // launch, so applying re-themes via an instant reload.
-  const [themePref, setThemePref] = useState<'system' | 'dark' | 'light'>(() => {
-    // prefs store first (persists on Android); App Group is the iOS-keyboard mirror.
-    const v = prefGet('app_theme') ?? getItem('app_theme');
-    return v === 'dark' || v === 'light' ? v : 'system';
-  });
-  const applyTheme = (v: 'system' | 'dark' | 'light') => {
-    if (v === themePref) return;
-    haptic.tap();
-    setThemePref(v);
-    // Persist to the cross-platform prefs store AND mirror to the App Group so the
-    // iOS keyboard extension re-themes too. The reload re-resolves colors.ts.
-    if (v === 'system') {
-      prefRemove('app_theme');
-      try { removeItem('app_theme'); } catch {}
-    } else {
-      prefSet('app_theme', v);
-      try { setItem('app_theme', v); } catch {}
-    }
-    setTimeout(() => Updates.reloadAsync().catch(() => {}), 150);
-  };
 
-  // (The Monochrome palette was removed — it could crash on iOS; the app is
-  // always the colour palette now, and colors.ts clears any stale 'mono' pref.)
-
-  // Subscriptions can only be cancelled through the store, so give a one-tap
-  // shortcut that deep-links straight to the store's subscription page (right
-  // where the Cancel button is) instead of making users hunt for it.
+  // Subscriptions can only be cancelled through the store — deep-link straight to it.
   const openManageSubscription = () => {
     const url =
       Platform.OS === 'ios'
@@ -143,25 +67,18 @@ export function SettingsScreen() {
     Linking.openURL(url).catch(() => {});
   };
 
-  // Patch a subset of the curation pipeline toggles in one shot.
-  const setCuration = (patch: Partial<CurationOptions>) =>
-    updateSettings({ curation: { ...settings.curation, ...patch } });
+  // Current theme, shown as the value on the Appearance row (detail owns the control).
+  const themeLabel = (() => {
+    const v = prefGet('app_theme') ?? getItem('app_theme');
+    return v === 'dark' ? 'Dark' : v === 'light' ? 'Light' : 'System';
+  })();
 
-  const pickLanguage = (code: string) => {
-    updateSettings({ language: code });
+  const go = (route: Parameters<typeof push>[0]) => () => {
     haptic.tap();
-    setLangOpen(false);
+    push(route);
   };
 
-  // Smart formatting is Pro-only: trying to enable it without Pro routes to the paywall.
-  const onToggleSmart = (v: boolean) => {
-    if (v && !signedIn) {
-      haptic.warning();
-      // The free tier needs an account (50 polishes/week ride the backend quota).
-      return;
-    }
-    updateSettings({ smartFormat: v });
-  };
+  const showKeyboard = Platform.OS === 'ios' || androidKeyboardAvailable;
 
   return (
     <Screen title="Settings" subtitle="Tune how VibeFlow listens and writes.">
@@ -190,9 +107,8 @@ export function SettingsScreen() {
         </Pressable>
       ) : null}
 
-      {/* Account & AI ----------------------------------------------------------- */}
-      <SectionTitle>Account & AI</SectionTitle>
-      <Card style={{ gap: 12 }}>
+      {/* Account — pinned at the top of the menu. */}
+      <Card style={{ gap: 12, marginTop: 4 }}>
         {signedIn ? (
           <>
             <View style={styles.acctRow}>
@@ -225,7 +141,6 @@ export function SettingsScreen() {
               Sign in to unlock 50 free AI polishes a week — grammar, punctuation and
               formatting, powered by VibeFlow's cloud.
             </Text>
-            {/* Apple sign-in is iOS-only (native module absent on Android). */}
             {Platform.OS === 'ios' ? (
               <Pressable disabled={authBusy} onPress={runAuth(signInWithApple)} style={({ pressed }) => [styles.appleBtn, pressed && { opacity: 0.85 }]}>
                 <Ionicons name="logo-apple" size={18} color="#000" />
@@ -244,307 +159,78 @@ export function SettingsScreen() {
         )}
       </Card>
 
-      {/* Appearance ------------------------------------------------------------ */}
-      <SectionTitle>Appearance</SectionTitle>
-      <Card style={styles.segCard}>
-        <View style={styles.segRow}>
-          {(
-            [
-              { key: 'system', label: 'System', icon: 'phone-portrait-outline' },
-              { key: 'dark', label: 'Dark', icon: 'moon-outline' },
-              { key: 'light', label: 'Light', icon: 'sunny-outline' },
-            ] as const
-          ).map((opt) => {
-            const active = themePref === opt.key;
-            return (
-              <Pressable
-                key={opt.key}
-                onPress={() => applyTheme(opt.key)}
-                style={({ pressed }) => [styles.seg, active && styles.segActive, pressed && { opacity: 0.8 }]}
-              >
-                <Ionicons name={opt.icon} size={16} color={active ? Colors.onBrand : Colors.inkSoft} />
-                <Text style={[styles.segText, active && styles.segTextActive]}>{opt.label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <Text style={styles.segHint}>Switching restarts the app for an instant re-theme.</Text>
-      </Card>
-
-      {/* Recognition ---------------------------------------------------------- */}
-      <SectionTitle>Recognition</SectionTitle>
-      <Card padded={false} style={styles.group}>
-        <ToggleRow
-          icon="shield-checkmark-outline"
-          tint={Colors.success}
-          label="On-device only"
-          subtitle="Your voice never leaves this phone"
-          value={settings.onDeviceOnly}
-          onValueChange={(v) => updateSettings({ onDeviceOnly: v })}
-        />
-        <Divider />
+      {/* The knobs — each opens its own focused screen. */}
+      <Card padded={false} style={styles.menu}>
         <NavRow
-          icon="language-outline"
-          tint="#54A0FF"
-          label="Language"
-          value={languageLabel(settings.language)}
-          onPress={() => setLangOpen(true)}
-        />
-      </Card>
-
-      {/* Formatting ----------------------------------------------------------- */}
-      <SectionTitle>Formatting</SectionTitle>
-      <Card padded={false} style={styles.group}>
-        <ToggleRow
-          icon="chatbox-ellipses-outline"
-          tint={Colors.brand}
-          label="Spoken punctuation"
-          subtitle="Say ‘comma’, ‘period’, ‘question mark’"
-          value={settings.curation.spokenPunctuation}
-          onValueChange={(v) => setCuration({ spokenPunctuation: v })}
-        />
-        <Divider />
-        <ToggleRow
-          icon="return-down-back-outline"
-          tint="#32D4C8"
-          label="Layout commands"
-          subtitle="‘new line’, ‘new paragraph’"
-          value={settings.curation.spokenCommands}
-          onValueChange={(v) => setCuration({ spokenCommands: v })}
-        />
-        <Divider />
-        <ToggleRow
-          icon="text-outline"
-          tint="#FF9F0A"
-          label="Capitalise sentences"
-          value={settings.curation.capitalizeSentences}
-          onValueChange={(v) => setCuration({ capitalizeSentences: v })}
-        />
-        <Divider />
-        <ToggleRow
-          icon="chevron-up-circle-outline"
-          tint="#FFB84D"
-          label="Capitalise first letter"
-          value={settings.curation.capitalizeFirst}
-          onValueChange={(v) => setCuration({ capitalizeFirst: v })}
-        />
-        <Divider />
-        <ToggleRow
-          icon="person-outline"
-          tint="#FFD60A"
-          label="Fix ‘i’ → ‘I’"
-          value={settings.curation.fixPronounI}
-          onValueChange={(v) => setCuration({ fixPronounI: v })}
-        />
-        <Divider />
-        <ToggleRow
-          icon="sparkles-outline"
-          tint="#FF6B9D"
-          label="Remove fillers"
-          subtitle="Drop ‘um’, ‘uh’…"
-          value={settings.curation.stripFillers}
-          onValueChange={(v) => setCuration({ stripFillers: v })}
-        />
-        <Divider />
-        <ToggleRow
-          icon="ellipse-outline"
-          tint="#8E8CF0"
-          label="Auto end period"
-          value={settings.curation.autoPeriod}
-          onValueChange={(v) => setCuration({ autoPeriod: v })}
-        />
-        <Divider />
-        <ToggleRow
-          icon="copy-outline"
-          tint="#4DC4FF"
-          label="Collapse repeats"
-          value={settings.curation.dedupeRepeats}
-          onValueChange={(v) => setCuration({ dedupeRepeats: v })}
-        />
-      </Card>
-
-      {/* Output & input ------------------------------------------------------- */}
-      <SectionTitle>Output & input</SectionTitle>
-      <Card padded={false} style={styles.group}>
-        <ToggleRow
-          icon="clipboard-outline"
-          tint={Colors.success}
-          label="Auto-copy after dictation"
-          value={settings.autoCopy}
-          onValueChange={(v) => updateSettings({ autoCopy: v })}
-        />
-        <Divider />
-        <ToggleRow
-          icon="code-outline"
-          tint="#9AA5B1"
-          label="Add trailing space"
-          value={settings.trailingSpace}
-          onValueChange={(v) => updateSettings({ trailingSpace: v })}
-        />
-        <Divider />
-        <ToggleRow
           icon="mic-outline"
-          tint="#FF7A6B"
-          label="Voice editing commands"
-          subtitle="‘scratch that’, ‘delete last word’"
-          value={settings.voiceCommands}
-          onValueChange={(v) => updateSettings({ voiceCommands: v })}
-        />
-        <Divider />
-        <ToggleRow
-          icon="radio-outline"
-          tint="#FF6B9D"
-          label="Haptic feedback"
-          value={settings.haptics}
-          onValueChange={(v) => updateSettings({ haptics: v })}
-        />
-      </Card>
-
-      {/* Smart formatting (Pro) ---------------------------------------------- */}
-      <View style={styles.sectionRow}>
-        <SectionTitle>Smart formatting</SectionTitle>
-        <Badge label="PRO" tone="amber" />
-      </View>
-      <Card padded={false} style={styles.group}>
-        <ToggleRow
-          icon="color-wand-outline"
-          label="Smart formatting"
-          subtitle={signedIn ? "AI cleans grammar & tone — 50 free/week" : "Sign in above to enable"}
-          value={signedIn ? settings.smartFormat : false}
-          onValueChange={onToggleSmart}
-        />
-      </Card>
-
-      {/* Personalise ---------------------------------------------------------- */}
-      <SectionTitle>Personalise</SectionTitle>
-      <Card padded={false} style={styles.group}>
-        <NavRow
-          icon="albums-outline"
           tint={Colors.brand}
-          label="Snippets"
-          value={String(snippets.length)}
-          onPress={() => push('snippets')}
+          label="Recognition"
+          subtitle="On-device mode · language · voice commands"
+          onPress={go('settingsRecognition')}
         />
         <Divider />
         <NavRow
-          icon="book-outline"
-          tint="#54A0FF"
-          label="Vocabulary"
-          value={String(vocabulary.length)}
-          onPress={() => push('vocabulary')}
+          icon="color-wand-outline"
+          tint="#56B6FF"
+          label="Formatting"
+          subtitle="Punctuation, capitalization, cleanup"
+          onPress={go('settingsFormatting')}
+        />
+        <Divider />
+        <NavRow
+          icon="sparkles-outline"
+          tint={Colors.amber}
+          label="Smart formatting"
+          subtitle="AI grammar & tone · Pro"
+          onPress={go('settingsSmartFormat')}
         />
         <Divider />
         <NavRow
           icon="swap-horizontal-outline"
-          tint="#32D4C8"
-          label="Corrections"
-          value={String(corrections.length)}
-          onPress={() => push('corrections')}
+          tint={Colors.success}
+          label="Output & input"
+          subtitle="Auto-copy, spacing, haptics"
+          onPress={go('settingsOutput')}
         />
       </Card>
 
-      {/* Keyboard: iOS = app-extension (Full Access flow, always in the iOS build);
-          Android = the VibeFlow InputMethodService — only show once a build actually
-          bundles it (androidKeyboardAvailable), so interim OTAs don't surface a dead
-          setup on Android Play builds that lack the native keyboard. */}
-      {Platform.OS === 'ios' || androidKeyboardAvailable ? (
-        <>
-          <SectionTitle>Keyboard</SectionTitle>
-          <Card padded={false} style={styles.group}>
-            <NavRow
-              icon="keypad-outline"
-              tint={Colors.success}
-              label="Set up the keyboard"
-              subtitle={
-                Platform.OS === 'ios'
-                  ? 'Guided: add VibeFlow + Allow Full Access'
-                  : 'Type by voice in any app'
-              }
-              onPress={() => push('keyboardSetup')}
-            />
-          </Card>
-        </>
-      ) : null}
-
-      {/* About ---------------------------------------------------------------- */}
-      <SectionTitle>About</SectionTitle>
-      <Card padded={false} style={styles.group}>
+      <Card padded={false} style={styles.menu}>
         <NavRow
-          icon="information-circle-outline"
-          tint="#9AA5B1"
-          label="About VibeFlow"
-          onPress={() => push('about')}
+          icon="book-outline"
+          tint="#A855F7"
+          label="Personal dictionary"
+          subtitle="Snippets · vocabulary · corrections"
+          onPress={go('settingsDictionary')}
         />
         <Divider />
         <NavRow
-          icon="sparkles-outline"
-          tint={Colors.brand}
-          label="Replay welcome demo"
-          onPress={() => {
-            haptic.tap();
-            replayDemo();
-          }}
+          icon="contrast-outline"
+          tint="#9AA5B1"
+          label="Appearance"
+          value={themeLabel}
+          onPress={go('settingsAppearance')}
+        />
+        {showKeyboard ? (
+          <>
+            <Divider />
+            <NavRow
+              icon="keypad-outline"
+              tint="#5FA8FF"
+              label="Keyboard"
+              subtitle="Set up VibeFlow in any app"
+              onPress={go('keyboardSetup')}
+            />
+          </>
+        ) : null}
+        <Divider />
+        <NavRow
+          icon="information-circle-outline"
+          tint="#8E8CF0"
+          label="About & privacy"
+          subtitle="Version, privacy, replay demo"
+          onPress={go('settingsAbout')}
         />
       </Card>
-
-      {/* Delete account — permanent + destructive, so it lives at the very bottom,
-          de-emphasised, and confirmDeleteAccount() gates it behind an alert. */}
-      {signedIn ? (
-        <View style={styles.deleteZone}>
-          <Pressable
-            disabled={authBusy}
-            onPress={confirmDeleteAccount}
-            style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.6 }]}
-          >
-            <Ionicons name="trash-outline" size={15} color={Colors.accentRed} />
-            <Text style={styles.deleteText}>Delete account</Text>
-          </Pressable>
-          <Text style={styles.deleteNote}>Permanently erases your account and data.</Text>
-        </View>
-      ) : null}
-
-      {/* Language picker bottom sheet ---------------------------------------- */}
-      <Modal
-        visible={langOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setLangOpen(false)}
-      >
-        <Pressable style={styles.backdrop} onPress={() => setLangOpen(false)}>
-          <Pressable style={styles.sheet} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
-            <Text style={[Type.title, styles.sheetTitle]}>Language</Text>
-            <Text style={[Type.bodySoft, { marginBottom: 6 }]}>
-              Pick the language VibeFlow recognises on-device.
-            </Text>
-            <ScrollView style={styles.sheetList} showsVerticalScrollIndicator={false}>
-              {LANGUAGES.map((lang) => {
-                const selected = lang.code === settings.language;
-                return (
-                  <Pressable
-                    key={lang.code}
-                    onPress={() => pickLanguage(lang.code)}
-                    style={({ pressed }) => [
-                      styles.langRow,
-                      selected && styles.langRowSelected,
-                      pressed && { opacity: 0.7 },
-                    ]}
-                  >
-                    <Text style={[Type.body, selected && { fontWeight: '700' }]}>
-                      {lang.label}
-                    </Text>
-                    {selected ? (
-                      <Ionicons name="checkmark-circle" size={20} color={Colors.brand} />
-                    ) : (
-                      <Text style={styles.langCode}>{lang.code}</Text>
-                    )}
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </Screen>
   );
 }
@@ -553,30 +239,15 @@ const styles = StyleSheet.create({
   goldEdge: { borderRadius: Radius.card + 1.5, padding: 1.5, marginBottom: 4 },
   goldCard: { backgroundColor: '#1A1406', borderRadius: Radius.card, padding: 14 },
   goldIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 13,
-    backgroundColor: '#F2CA52',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 40, height: 40, borderRadius: 13, backgroundColor: '#F2CA52',
+    alignItems: 'center', justifyContent: 'center',
   },
   goldTitle: { color: '#FFE9A8', fontSize: 15.5, fontWeight: '800' },
   goldSub: { color: 'rgba(255,233,168,0.7)', fontSize: 12.5, marginTop: 2 },
   bannerRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  bannerIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: `${Colors.brand}33`,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   bannerText: { flex: 1 },
-  bannerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 
-  group: { paddingHorizontal: 16 },
-
-  segCard: { gap: 10 },
+  menu: { paddingHorizontal: 16, marginTop: 16 },
 
   acctRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   acctIcon: {
@@ -598,76 +269,4 @@ const styles = StyleSheet.create({
   acctActions: { gap: 4 },
   signOutBtn: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44, paddingVertical: 6, paddingHorizontal: 2 },
   signOutText: { color: Colors.inkSoft, fontSize: 14, fontWeight: '600' },
-  // Delete account: tucked at the very bottom, de-emphasised (small, subtle red outline).
-  deleteZone: { alignItems: 'center', marginTop: 30, marginBottom: 8 },
-  deleteBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 7,
-    paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10,
-    borderWidth: 1, borderColor: 'rgba(255,90,90,0.28)', backgroundColor: 'rgba(255,90,90,0.06)',
-  },
-  deleteText: { color: Colors.accentRed, fontSize: 13.5, fontWeight: '600' },
-  deleteNote: { color: Colors.inkSoft, opacity: 0.6, fontSize: 11.5, marginTop: 8, textAlign: 'center' },
-  segRow: { flexDirection: 'row', gap: 8 },
-  seg: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: Colors.chipBg,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  segActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
-  segText: { color: Colors.inkSoft, fontSize: 13.5, fontWeight: '600' },
-  segTextActive: { color: Colors.onBrand },
-  segHint: { color: Colors.inkFaint, fontSize: 11.5 },
-
-  sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: Radius.card,
-    borderTopRightRadius: Radius.card,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.outline,
-    paddingHorizontal: Spacing.gutter,
-    paddingTop: 10,
-    paddingBottom: 32,
-    maxHeight: '78%',
-  },
-  sheetHandle: {
-    alignSelf: 'center',
-    width: 40,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: Colors.outline,
-    marginBottom: 14,
-  },
-  sheetTitle: { fontSize: 22, marginBottom: 2 },
-  sheetList: { marginTop: 8 },
-  langRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    marginBottom: 6,
-    backgroundColor: Colors.surfaceVariant,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'transparent',
-  },
-  langRowSelected: {
-    borderColor: Colors.brand,
-    backgroundColor: `${Colors.brand}29`,
-  },
-  langCode: { color: Colors.inkFaint, fontSize: 13, fontWeight: '600' },
 });

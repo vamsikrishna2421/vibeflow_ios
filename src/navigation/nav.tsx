@@ -13,7 +13,15 @@ export type StackRoute =
   | 'corrections'
   | 'keyboardSetup'
   | 'paywall'
-  | 'about';
+  | 'about'
+  // Settings detail screens (the sectioned Settings menu drills into these).
+  | 'settingsRecognition'
+  | 'settingsFormatting'
+  | 'settingsSmartFormat'
+  | 'settingsOutput'
+  | 'settingsDictionary'
+  | 'settingsAppearance'
+  | 'settingsAbout';
 
 interface NavApi {
   tab: Tab;
