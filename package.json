@@ -2,12 +2,12 @@
   "name": "vibeflow",
   "version": "1.0.0",
   "main": "index.ts",
-  "description": "VibeFlow \u2014 premium offline voice keyboard for iPhone (Expo app + native keyboard extension).",
+  "description": "VibeFlow — premium offline voice keyboard for iPhone (Expo app + native keyboard extension).",
   "dependencies": {
     "@bacons/apple-targets": "^4.0.0",
     "@expo/vector-icons": "^15.1.0",
     "@supabase/supabase-js": "^2.110.0",
-    "expo": "57.0.4",
+    "expo": "^57.0.0",
     "expo-apple-authentication": "~57.0.0",
     "expo-asset": "~57.0.0",
     "expo-build-properties": "~57.0.0",
@@ -27,7 +27,7 @@
     "expo-sqlite": "~57.0.0",
     "expo-status-bar": "~57.0.0",
     "expo-system-ui": "~57.0.0",
-    "expo-updates": "57.0.6",
+    "expo-updates": "~57.0.0",
     "expo-web-browser": "~57.0.0",
     "react": "19.2.3",
     "react-native": "0.86.0",
@@ -58,11 +58,5 @@
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.js"
   },
-  "private": true,
-  "comment:overrides": "Restore 1.0.52's mic-working native layer: expo-modules-core 57.0.3 + expo-modules-jsi 57.0.1 (both from 1.0.52's build log; jsi 57.0.1 compiles, no patch). expo meta pinned 57.0.4 to match core 57.0.3's C++. Other modules float (1.0.52 ran a mixed set, e.g. expo-updates 57.0.6). Newer core 57.0.6 (expo 57.0.7) broke the mic in 1.0.59. Locked via committed package-lock.json + npm ci.",
-  "overrides": {
-    "expo-modules-core": "57.0.3",
-    "expo-modules-jsi": "57.0.1",
-    "expo-modules-autolinking": "57.0.3"
-  }
+  "private": true
 }
