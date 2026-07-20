@@ -1268,11 +1268,23 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
 
     /// Insert with a separating space when the cursor sits right after a word.
     private func smartInsert(_ text: String) {
-        if let before = textDocumentProxy.documentContextBeforeInput,
-           let last = before.last, !last.isWhitespace, !"\n([{\"'".contains(last) {
+        let before = textDocumentProxy.documentContextBeforeInput ?? ""
+        var out = text
+        // Continuous dictation arrives in 45s chunks, each capitalized as if it were its
+        // own dictation. Re-case the FIRST letter from the real cursor context so the
+        // chunks read as one flowing sentence: uppercase only at a genuine sentence start,
+        // lowercase when continuing mid-sentence. (Scoped to continuous mode — normal
+        // single dictations keep the app's capitalization untouched.)
+        if groupString("flow_continuous") == "true", let first = out.first, first.isLetter {
+            let trimmed = before.trimmingCharacters(in: .whitespacesAndNewlines)
+            let atSentenceStart = trimmed.isEmpty || (trimmed.last.map { ".!?\n".contains($0) } ?? true)
+            let head = atSentenceStart ? first.uppercased() : first.lowercased()
+            out = head + String(out.dropFirst())
+        }
+        if let last = before.last, !last.isWhitespace, !"\n([{\"'".contains(last) {
             textDocumentProxy.insertText(" ")
         }
-        textDocumentProxy.insertText(text)
+        textDocumentProxy.insertText(out)
     }
 
     /// Darwin observers: "result ready" → insert the dictation; "status" → animate

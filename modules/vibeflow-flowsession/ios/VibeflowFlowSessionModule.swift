@@ -265,6 +265,13 @@ public class VibeflowFlowSessionModule: Module {
   }
 
   private func startUtterance() {
+    // Continuous roll-over can find the engine momentarily stopped after an iOS audio
+    // hiccup between chunks; try to revive it once before giving up so a transient stall
+    // doesn't drop the chain to idle. No-op when already running; scoped to continuous
+    // mode so the proven single-dictation path is untouched.
+    if active, engine?.isRunning != true, group?.string(forKey: "flow_continuous") == "true" {
+      try? startEngine()
+    }
     guard active, engine?.isRunning == true else {
       setStatus("error: session not running — tap the mic again to restart")
       teardownSession()
