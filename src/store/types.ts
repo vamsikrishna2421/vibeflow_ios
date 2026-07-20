@@ -53,6 +53,9 @@ export interface AppSettings {
   smartFormat: boolean;
   autoCopy: boolean;
   haptics: boolean;
+  /** EXPERIMENTAL: chain the keyboard mic's 45s chunks so long dictation feels
+   *  limitless (each chunk auto-saves, then the next begins). Off by default. */
+  continuousDictation: boolean;
 }
 
 /** Everything that survives an app restart. */
@@ -105,6 +108,7 @@ export function defaultSettings(): AppSettings {
     //                  "Send to device" clipboard chip on every result. Users who
     //                  want it can re-enable in Settings → Auto-copy after dictation.
     haptics: true,
+    continuousDictation: false, // experimental; opt-in in Settings → Recognition
   };
 }
 

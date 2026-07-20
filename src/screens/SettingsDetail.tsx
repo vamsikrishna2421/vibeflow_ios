@@ -69,6 +69,24 @@ export function RecognitionSettings() {
         />
       </Card>
 
+      <SectionTitle>Experimental</SectionTitle>
+      <Card padded={false} style={styles.group}>
+        <ToggleRow
+          icon="infinite-outline"
+          tint="#8E8CF0"
+          label="Continuous dictation"
+          subtitle="Keep recording past 45s — each chunk auto-saves, the next begins"
+          value={settings.continuousDictation}
+          onValueChange={(v) => updateSettings({ continuousDictation: v })}
+        />
+      </Card>
+      <Text style={styles.explain}>
+        Continuous dictation lets long recordings feel limitless: at each 45-second mark
+        your words are saved into the field, then recording resumes automatically. It’s
+        experimental — if a very long recording ever stalls, turn this off to return to the
+        rock-solid single-45s behaviour.
+      </Text>
+
       <Text style={styles.explain}>
         Cloud recognition (default) is the larger, more accurate model. On-device keeps
         everything private but is a little less precise.

@@ -281,6 +281,7 @@ public class VibeflowFlowSessionModule: Module {
     endedSegments = []
     utteranceSeqs = []
     fastFails = 0
+    group?.set("", forKey: "flow_partial") // fresh tail-line per utterance/chunk
     startSegment()
     // ~45s cap: publish the deadline (for the keyboard's countdown line) + auto-stop.
     capTimer?.invalidate()
@@ -288,6 +289,16 @@ public class VibeflowFlowSessionModule: Module {
     group?.set(String(deadlineMs), forKey: "flow_session_deadline_ts")
     capTimer = Timer.scheduledTimer(withTimeInterval: sessionMaxSeconds, repeats: false) { [weak self] _ in
       guard let self, self.utteranceActive, !self.stopping else { return }
+      // EXPERIMENTAL "continuous" mode (Settings → Continuous dictation): instead of
+      // stopping at the cap, roll straight into the next 45s chunk so it feels limitless.
+      // Safe-by-construction: the audio engine + AVAudioPlayerNode keep-alive are NOT
+      // torn down here (only a real stop / teardownSession does that), so this reuses the
+      // SAME already-granted background assertion — the current chunk's text is delivered
+      // via finishUtterance, then `pendingStart` auto-begins a fresh utterance on the
+      // still-running stream. Off (default) → the proven single-45s behaviour is unchanged.
+      if self.group?.string(forKey: "flow_continuous") == "true" {
+        self.pendingStart = true
+      }
       self.stopUtterance()
     }
     setStatus("listening")
