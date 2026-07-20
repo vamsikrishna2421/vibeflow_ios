@@ -91,12 +91,14 @@ public class VibeflowFlowSessionModule: Module {
   //   at a natural pause (zero audio gap — see rotateSegment), and each rotated-out
   //   segment is delivered as a chunk. So words stream into the field seamlessly with no
   //   dropped audio and the mic never leaves "listening".
-  private var minSegmentSeconds: TimeInterval { continuousOn ? 30 : 60 }
-  private var hardCapSeconds: TimeInterval { continuousOn ? 50 : 60 }
+  private var minSegmentSeconds: TimeInterval { continuousOn ? 30 : 45 }
+  private var hardCapSeconds: TimeInterval { continuousOn ? 50 : 58 }
   private let quietGapSeconds: TimeInterval = 0.6
-  // Total session cap (NON-continuous only): auto-stop the mic after ~45s; the keyboard
-  // draws a matching countdown line off `flow_session_deadline_ts`.
-  private let sessionMaxSeconds: TimeInterval = 45
+  // Total session cap (NON-continuous only): auto-stop the mic after this long; the
+  // keyboard draws a matching countdown line off `flow_session_deadline_ts`.
+  // DIAGNOSTIC (1.0.69): raised 45→120 so a single recording can be tested end-to-end —
+  // isolates whether words drop from segment rotation vs the continuous chunked delivery.
+  private let sessionMaxSeconds: TimeInterval = 120
   private var capTimer: Timer?
 
   private var group: UserDefaults? { UserDefaults(suiteName: appGroup) }
