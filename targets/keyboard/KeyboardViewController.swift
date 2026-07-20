@@ -1326,7 +1326,10 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         store?.set(String(savedTs), forKey: "kbd_inserted_ts")
         lastFlowInserted = text
         smartInsert(text)
-        flashMicSuccess()
+        // Continuous mode streams chunks WHILE still recording — no green success flash;
+        // the mic stays red (listening) and the tail-line keeps flowing. A normal single
+        // dictation still gets the satisfying green confirmation.
+        if groupString("flow_continuous") != "true" { flashMicSuccess() }
         updateSuggestions()
     }
 
@@ -1342,7 +1345,8 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         }
         applyMicAppearance()
         if flowMicState == .listening {
-            startCountdownBar()
+            // Continuous mode has no 45s cap → no countdown line (Wispr-style limitless).
+            if groupString("flow_continuous") == "true" { hideCountdownBar() } else { startCountdownBar() }
             installTailLine()              // the live transcript takes over the strip
         } else {
             hideCountdownBar()

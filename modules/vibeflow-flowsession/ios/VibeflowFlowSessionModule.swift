@@ -81,15 +81,21 @@ public class VibeflowFlowSessionModule: Module {
   /// slightly stale value only shifts rotation by one 0.5s tick — acceptable.
   private var lastVoiceAt: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
 
-  // The on-device keyboard tier is hard-capped at `sessionMaxSeconds` (45s), safely
-  // under SFSpeech's ~60s single-request limit — so the whole dictation is ONE segment
-  // with NO rotation seam ("don't break it into two parts"). Rotation stays for a future
-  // unlimited tier but its threshold sits above the cap, so it never arms under 45s.
-  private let minSegmentSeconds: TimeInterval = 60
-  private let hardCapSeconds: TimeInterval = 60
+  // Whether the founder's experimental "continuous" mode is on (Settings → Recognition).
+  private var continuousOn: Bool { group?.string(forKey: "flow_continuous") == "true" }
+
+  // Segment-rotation cadence.
+  // • NON-continuous: 45s chunk = ONE segment (threshold 60s > the 45s cap, so rotation
+  //   never arms → no seam; "don't break it into two parts").
+  // • CONTINUOUS: the utterance NEVER ends at a fixed cap. Segments rotate ~every 30–50s
+  //   at a natural pause (zero audio gap — see rotateSegment), and each rotated-out
+  //   segment is delivered as a chunk. So words stream into the field seamlessly with no
+  //   dropped audio and the mic never leaves "listening".
+  private var minSegmentSeconds: TimeInterval { continuousOn ? 30 : 60 }
+  private var hardCapSeconds: TimeInterval { continuousOn ? 50 : 60 }
   private let quietGapSeconds: TimeInterval = 0.6
-  // Total session cap: auto-stop the mic after ~45s. The keyboard draws a matching
-  // countdown line off `flow_session_deadline_ts`. Independent of per-segment rotation.
+  // Total session cap (NON-continuous only): auto-stop the mic after ~45s; the keyboard
+  // draws a matching countdown line off `flow_session_deadline_ts`.
   private let sessionMaxSeconds: TimeInterval = 45
   private var capTimer: Timer?
 
@@ -290,23 +296,22 @@ public class VibeflowFlowSessionModule: Module {
     fastFails = 0
     group?.set("", forKey: "flow_partial") // fresh tail-line per utterance/chunk
     startSegment()
-    // ~45s cap: publish the deadline (for the keyboard's countdown line) + auto-stop.
     capTimer?.invalidate()
-    let deadlineMs = (Date().timeIntervalSince1970 + sessionMaxSeconds) * 1000
-    group?.set(String(deadlineMs), forKey: "flow_session_deadline_ts")
-    capTimer = Timer.scheduledTimer(withTimeInterval: sessionMaxSeconds, repeats: false) { [weak self] _ in
-      guard let self, self.utteranceActive, !self.stopping else { return }
-      // EXPERIMENTAL "continuous" mode (Settings → Continuous dictation): instead of
-      // stopping at the cap, roll straight into the next 45s chunk so it feels limitless.
-      // Safe-by-construction: the audio engine + AVAudioPlayerNode keep-alive are NOT
-      // torn down here (only a real stop / teardownSession does that), so this reuses the
-      // SAME already-granted background assertion — the current chunk's text is delivered
-      // via finishUtterance, then `pendingStart` auto-begins a fresh utterance on the
-      // still-running stream. Off (default) → the proven single-45s behaviour is unchanged.
-      if self.group?.string(forKey: "flow_continuous") == "true" {
-        self.pendingStart = true
+    capTimer = nil
+    if continuousOn {
+      // No fixed cap — the utterance runs continuously; segment rotation delivers each
+      // chunk at a natural pause (zero audio gap). No deadline → the keyboard hides the
+      // countdown line entirely for a Wispr-style limitless feel.
+      group?.set("", forKey: "flow_session_deadline_ts")
+    } else {
+      // ~45s cap (proven single-chunk path): publish the deadline for the keyboard's
+      // countdown line + auto-stop the mic.
+      let deadlineMs = (Date().timeIntervalSince1970 + sessionMaxSeconds) * 1000
+      group?.set(String(deadlineMs), forKey: "flow_session_deadline_ts")
+      capTimer = Timer.scheduledTimer(withTimeInterval: sessionMaxSeconds, repeats: false) { [weak self] _ in
+        guard let self, self.utteranceActive, !self.stopping else { return }
+        self.stopUtterance()
       }
-      self.stopUtterance()
     }
     setStatus("listening")
   }
@@ -438,7 +443,19 @@ public class VibeflowFlowSessionModule: Module {
       }
       return
     }
-    guard seq == currentSeq else { return } // an older segment finalising — done
+    guard seq == currentSeq else {
+      // An older (rotated-out) segment just finalised. In CONTINUOUS mode this is a
+      // chunk boundary: deliver its finished words to the field NOW and prune it, so
+      // the running transcript (tail-line) only shows the not-yet-inserted words. The
+      // utterance keeps going on the new segment — audio never gaps, mic stays listening.
+      if continuousOn, let chunk = segmentTexts[seq],
+         !chunk.trimmingCharacters(in: .whitespaces).isEmpty {
+        deliverChunk(chunk)
+        segmentTexts[seq] = nil
+        group?.set(joinedTranscript(), forKey: "flow_partial")
+      }
+      return // an older segment finalising — done
+    }
     // Guard against a wedged recognizer (e.g. model missing): three consecutive
     // instant, textless deaths → deliver what we have instead of looping forever.
     let lived = Date().timeIntervalSince(segmentStartedAt)
@@ -493,6 +510,29 @@ public class VibeflowFlowSessionModule: Module {
       .map { $0.value.trimmingCharacters(in: .whitespaces) }
       .filter { !$0.isEmpty }
       .joined(separator: " ")
+  }
+
+  /// Deliver ONE finished segment mid-stream (continuous mode) WITHOUT ending the
+  /// utterance. Hands the text to JS exactly like a final (same `utteranceFinal` event →
+  /// curation → keyboard insert), but crucially does NOT `setStatus("processing")`, so the
+  /// mic stays "listening" (red) — no green success flash between chunks. Mirrors
+  /// finishUtterance's 8s native fallback so a chunk is never lost if JS is asleep.
+  private func deliverChunk(_ text: String) {
+    let chunkId = String(Int(Date().timeIntervalSince1970 * 1000))
+    group?.set(chunkId, forKey: "flow_utterance_id")
+    sendEvent("utteranceFinal", ["text": text, "id": chunkId])
+    let raw = text
+    DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+      guard let self else { return }
+      // A claim for this chunk OR any later one proves JS received (and delivered) it.
+      let claim = Int(self.group?.string(forKey: "flow_claim_id") ?? "") ?? 0
+      if claim >= (Int(chunkId) ?? Int.max) { return }
+      // JS never claimed → deliver raw so the chunk is not lost.
+      self.group?.set(raw, forKey: "latest_dictation")
+      self.group?.set(String(Date().timeIntervalSince1970 * 1000), forKey: "latest_dictation_ts")
+      self.group?.set(chunkId, forKey: "flow_fallback_done")
+      Self.post(Self.resultName)
+    }
   }
 
   private func finishUtterance(with text: String?) {
