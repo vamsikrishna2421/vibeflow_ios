@@ -229,6 +229,7 @@ export function useDictation({
           lang,
           interimResults: true,
           continuous: true,
+          // Follows the user's Recognition setting (default: on-device = private).
           requiresOnDeviceRecognition: onDeviceOnly,
           addsPunctuation: true,
           ...(bias && bias.length ? { contextualStrings: bias } : {}),
@@ -250,6 +251,8 @@ export function useDictation({
         // recognition has no such cap, so only rotate on-device.
         stopRotate();
         if (onDeviceOnly) {
+          // On-device has the ~60s request cap → rotate before it (preferring a natural
+          // silence gap). Cloud has no such cap, so only rotate on-device.
           rotateInterval.current = setInterval(() => {
             if (!listeningRef.current || stoppingRef.current || rotatingRef.current) return;
             const now = Date.now();

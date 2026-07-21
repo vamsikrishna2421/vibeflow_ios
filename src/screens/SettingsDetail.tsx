@@ -43,7 +43,7 @@ export function RecognitionSettings() {
           icon="shield-checkmark-outline"
           tint={Colors.success}
           label="On-device only"
-          subtitle="Your voice never leaves this phone"
+          subtitle="On by default — turn off for higher-accuracy cloud recognition"
           value={settings.onDeviceOnly}
           onValueChange={(v) => updateSettings({ onDeviceOnly: v })}
         />
@@ -69,27 +69,27 @@ export function RecognitionSettings() {
         />
       </Card>
 
-      <SectionTitle>Experimental</SectionTitle>
+      <SectionTitle>Dictation length</SectionTitle>
       <Card padded={false} style={styles.group}>
         <ToggleRow
           icon="infinite-outline"
           tint="#8E8CF0"
           label="Continuous dictation"
-          subtitle="Keep recording past 45s — each chunk auto-saves, the next begins"
+          subtitle="No time limit — keep talking; your words stream in as you go"
           value={settings.continuousDictation}
           onValueChange={(v) => updateSettings({ continuousDictation: v })}
         />
       </Card>
       <Text style={styles.explain}>
-        Continuous dictation lets long recordings feel limitless: at each 45-second mark
-        your words are saved into the field, then recording resumes automatically. It’s
-        experimental — if a very long recording ever stalls, turn this off to return to the
-        rock-solid single-45s behaviour.
+        On (recommended), the keyboard mic has no time limit — talk as long as you like and
+        your words stream into the field as you speak. Turn it off for a single ~45-second
+        recording with a countdown line, then a tap to continue.
       </Text>
 
       <Text style={styles.explain}>
-        Cloud recognition (default) is the larger, more accurate model. On-device keeps
-        everything private but is a little less precise.
+        On-device (the default) keeps your voice private — it never leaves your phone. Turn
+        “On-device only” off to use Apple’s cloud speech service, a larger, more accurate
+        model (the same one the system keyboard mic uses).
       </Text>
 
       <LanguageSheet

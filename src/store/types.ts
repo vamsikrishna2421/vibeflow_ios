@@ -98,17 +98,20 @@ export function defaultSettings(): AppSettings {
     routingMode: 'AUTO',
     trailingSpace: true,
     language: 'en-US',
-    // Cloud (Apple server) recognition by default — the larger, more accurate model,
-    // same backend as Apple's own keyboard mic. Users who want audio to never leave the
-    // phone can turn "On-device only" ON in Settings (falls back to on-device offline too).
-    onDeviceOnly: false,
+    // On-device recognition by DEFAULT (2026-07-20) — private: your voice never leaves the
+    // phone (true for BOTH the in-app mic and the keyboard). Users who want the larger,
+    // more-accurate cloud model (Apple's speech service, same backend as the system
+    // keyboard mic) can turn "On-device only" OFF in Settings. NOTE: verify on-device
+    // keyboard CONTINUOUS dictation survives in the background (old cpulimit concern —
+    // possibly stale post the 1.0.55 waveform-CPU fix); fall back to cloud default if not.
+    onDeviceOnly: true,
     voiceCommands: true,
     smartFormat: false,
     autoCopy: false, // OFF by default: auto-copy triggers Android 13+'s intrusive
     //                  "Send to device" clipboard chip on every result. Users who
     //                  want it can re-enable in Settings → Auto-copy after dictation.
     haptics: true,
-    continuousDictation: false, // experimental; opt-in in Settings → Recognition
+    continuousDictation: true, // limitless keyboard dictation, ON by default (1.0.71)
   };
 }
 

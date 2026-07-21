@@ -22,7 +22,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.vibeflow.dictation",
-      "buildNumber": "1.0.70",
+      "buildNumber": "1.0.71",
       "appleTeamId": "33348G2388",
       "entitlements": {
         "com.apple.security.application-groups": [
@@ -37,8 +37,8 @@
           "audio"
         ],
         "CFBundleDisplayName": "VibeFlow",
-        "NSMicrophoneUsageDescription": "VibeFlow uses the microphone to turn your voice into text on-device.",
-        "NSSpeechRecognitionUsageDescription": "VibeFlow uses on-device speech recognition so your voice never leaves your phone.",
+        "NSMicrophoneUsageDescription": "VibeFlow uses the microphone to turn your voice into text.",
+        "NSSpeechRecognitionUsageDescription": "VibeFlow converts your speech to text — on your device by default, so your voice stays private. You can switch to Apple's cloud speech recognition in Settings for higher accuracy.",
         "NSPhotoLibraryUsageDescription": "VibeFlow does not access your photos. This notice is required by iOS because a bundled system component links Apple's Photos framework; no photo data is ever read or uploaded.",
         "UISupportedInterfaceOrientations": [
           "UIInterfaceOrientationPortrait"
@@ -63,8 +63,8 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "VibeFlow uses the microphone to turn your voice into text on-device.",
-          "speechRecognitionPermission": "VibeFlow uses on-device speech recognition so your voice never leaves your phone."
+          "microphonePermission": "VibeFlow uses the microphone to turn your voice into text.",
+          "speechRecognitionPermission": "VibeFlow converts your speech to text — on your device by default, so your voice stays private. You can switch to Apple's cloud speech recognition in Settings for higher accuracy."
         }
       ],
       "expo-secure-store",
