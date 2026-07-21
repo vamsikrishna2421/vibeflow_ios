@@ -46,7 +46,7 @@
 <div class="wrap">
   <header><div class="logo">V</div><span style="font-weight:700">VibeFlow</span></header>
   <h1>Privacy Policy</h1>
-  <p class="updated">Last updated: 11 July 2026</p>
+  <p class="updated">Last updated: 21 July 2026</p>
 
   <p class="lead">VibeFlow is a voice keyboard that turns your speech into clean, formatted text. This policy explains
   exactly what we collect, why, who helps us process it, and the choices you have — in plain language.</p>
@@ -55,7 +55,7 @@
     <strong>The short version.</strong>
     <ul>
       <li>We <strong>don’t sell your data</strong> and we <strong>show no ads</strong>.</li>
-      <li>We <strong>don’t store your voice recordings</strong>. Audio is turned into text on your device/OS and then discarded.</li>
+      <li>We <strong>don’t store your voice recordings</strong>. Speech is turned into text <strong>on your device by default</strong>; if you turn off “On-device only”, audio is processed by <strong>Apple’s</strong> speech service. Either way, VibeFlow never receives or keeps your audio.</li>
       <li>Your dictated text is sent to our AI provider <strong>only to format it</strong>, then it’s gone — we don’t keep it.</li>
       <li>The keyboard <strong>can’t see</strong> passwords or other secure fields, and doesn’t log your keystrokes.</li>
       <li>You can <strong>delete your account and data anytime</strong> in Settings → Delete account.</li>
@@ -68,8 +68,9 @@
     <thead><tr><th>Data</th><th>Why</th><th>Kept?</th></tr></thead>
     <tbody>
       <tr><td><strong>Email address</strong></td><td>To create and secure your account and sync your settings.</td><td>Until you delete your account.</td></tr>
-      <tr><td><strong>Dictated text</strong> (what you speak, converted to text)</td><td>Sent to our AI provider to clean up grammar, punctuation and formatting, then returned to you.</td><td><strong>Not stored</strong> — processed and discarded.</td></tr>
-      <tr><td><strong>Microphone audio</strong></td><td>Converted to text by your device’s speech recognizer.</td><td><strong>Not stored by us.</strong></td></tr>
+      <tr><td><strong>Name and occupation</strong> (optional, from onboarding)</td><td>To greet you by name when you sign back in, and — in aggregate — to understand which professions use VibeFlow.</td><td>Until you delete your account.</td></tr>
+      <tr><td><strong>Dictated text</strong> (what you speak, converted to text)</td><td>If you enable Smart Formatting, sent to our AI provider to clean up grammar, punctuation and formatting, then returned to you.</td><td><strong>Not stored</strong> — processed and discarded.</td></tr>
+      <tr><td><strong>Microphone audio</strong></td><td>Converted to text on your device by default; if you turn off “On-device only”, by Apple’s speech service.</td><td><strong>Not stored by us.</strong></td></tr>
       <tr><td><strong>Purchase information</strong></td><td>To unlock and manage your VibeFlow Pro subscription.</td><td>While you have an account.</td></tr>
       <tr><td><strong>Device identifier</strong> (a random ID we generate)</td><td>To enforce the per-account device limit and prevent abuse. Not your hardware ID.</td><td>Anonymous usage counter may be retained for abuse prevention after deletion.</td></tr>
       <tr><td><strong>Usage counts</strong> (e.g. number of formats)</td><td>To meter the free tier and understand overall usage.</td><td>Until you delete your account.</td></tr>
@@ -85,7 +86,8 @@
     <li><strong>Supabase</strong> — accounts, authentication and app settings (our backend).</li>
     <li><strong>OpenAI</strong> — formats your dictated text; the text is processed to produce your result and is not used to train models on our behalf or retained by us.</li>
     <li><strong>RevenueCat</strong> — manages subscriptions and purchase validation.</li>
-    <li><strong>Google Play / Apple</strong> — process payments and, on Android, the device speech recognizer converts your audio to text.</li>
+    <li><strong>Apple</strong> — on iOS, converts your speech to text (on-device by default; via Apple’s cloud speech service if you turn off “On-device only”). On Android the device’s own speech recognizer does this.</li>
+    <li><strong>Google Play / Apple</strong> — process payments and subscriptions.</li>
   </ul>
   <p>We don’t sell your personal data or share it with third parties for their own advertising.</p>
 
