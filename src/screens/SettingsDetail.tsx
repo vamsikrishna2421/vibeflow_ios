@@ -71,8 +71,10 @@ export function RecognitionSettings() {
       <Text style={styles.explain}>
         By default VibeFlow uses Apple’s cloud speech recognition — larger and more accurate
         (the same engine as the system keyboard mic), with no time limit on dictation. Turn on
-        “On-device only” to keep your voice entirely on your phone; dictation then runs in
-        ~45-second stretches with a countdown line, then a tap to continue.
+        “On-device only” to keep your voice entirely on your phone. On-device recognition is
+        CPU-intensive, so to keep your iPhone cool and protect its battery, on-device dictation
+        runs in ~45-second stretches — a countdown line shows the time left; tap the mic to
+        keep going.
       </Text>
 
       <LanguageSheet

@@ -34,8 +34,8 @@ VibeFlow is a voice keyboard: tap the mic and talk, and your words are typed for
 
 WHY VIBEFLOW
 • Types where you type — VibeFlow is a full keyboard, so you can dictate in every app on your iPhone.
-• Private by default — speech is recognized on your device, so your voice never leaves your iPhone. Prefer maximum accuracy? Turn off "On-device only" in Settings to use Apple's cloud speech recognition.
-• No time limit — keep talking as long as you like; your words stream into the field as you speak.
+• No time limit — talk as long as you like; your words stream into the field as you speak.
+• Private on-device mode — turn on "On-device only" to keep your voice entirely on your iPhone. On-device recognition is CPU-intensive, so this mode runs in ~45-second stretches (a countdown shows the time left) to keep your device cool and easy on the battery — just tap the mic to continue.
 • Clean text automatically — filler words and stumbles are cleaned up, and punctuation is added as you speak (say "new line", "comma", "question mark").
 • A real keyboard, too — a fast, modern QWERTY layout with smart suggestions and long-press accents for when you'd rather type.
 
@@ -49,7 +49,7 @@ VibeFlow is built to feel effortless — a premium voice keyboard that gets out 
 
 **What's New (for 1.0 — first release):**
 ```
-The first public release of VibeFlow — a private voice keyboard for iPhone. Tap the mic in any app and talk; your words are typed in place, cleaned up as you speak. On-device by default, with no time limit on dictation.
+The first public release of VibeFlow — a voice keyboard for iPhone. Tap the mic in any app and talk; your words are typed in place, cleaned up as you speak. No time limit on dictation, plus a private on-device mode that runs in short stretches to keep your device cool.
 ```
 
 ## App Privacy (nutrition labels)
