@@ -48,17 +48,14 @@ export interface AppSettings {
   routingMode: RoutingMode;
   trailingSpace: boolean;
   language: string;
-  /** Cloud (false, default) = unlimited continuous dictation. On-device (true) = private,
-   *  but the keyboard mic runs in ~45s stretches (a countdown line + tap to continue).
-   *  Continuous vs 45s is derived from THIS — there is no separate continuous toggle. */
   onDeviceOnly: boolean;
   voiceCommands: boolean;
   smartFormat: boolean;
   autoCopy: boolean;
   haptics: boolean;
-  /** The single Formatting toggle: on = tidy the dictation (the full `curation` pipeline);
-   *  off = insert exactly what was heard. Replaces the old per-transform toggles. */
-  autoFormat: boolean;
+  /** EXPERIMENTAL: chain the keyboard mic's 45s chunks so long dictation feels
+   *  limitless (each chunk auto-saves, then the next begins). Off by default. */
+  continuousDictation: boolean;
 }
 
 /** Everything that survives an app restart. */
@@ -101,10 +98,9 @@ export function defaultSettings(): AppSettings {
     routingMode: 'AUTO',
     trailingSpace: true,
     language: 'en-US',
-    // Cloud (Apple's speech service) recognition by DEFAULT → unlimited continuous
-    // dictation (the proven path; on-device background recording is CPU-capped by iOS).
-    // Turning "On-device only" ON keeps everything on the phone but runs the keyboard mic
-    // in ~45s stretches with a countdown. No separate toggle — behaviour follows this flag.
+    // Cloud (Apple server) recognition by default — the larger, more accurate model,
+    // same backend as Apple's own keyboard mic. Users who want audio to never leave the
+    // phone can turn "On-device only" ON in Settings (falls back to on-device offline too).
     onDeviceOnly: false,
     voiceCommands: true,
     smartFormat: false,
@@ -112,7 +108,7 @@ export function defaultSettings(): AppSettings {
     //                  "Send to device" clipboard chip on every result. Users who
     //                  want it can re-enable in Settings → Auto-copy after dictation.
     haptics: true,
-    autoFormat: true, // tidy dictation by default; off = raw
+    continuousDictation: false, // experimental; opt-in in Settings → Recognition
   };
 }
 

@@ -10,6 +10,7 @@ import * as Updates from 'expo-updates';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { PRO_ENABLED } from '@/config/features';
+import { CurationOptions } from '@/core';
 import { useAuth } from '@/hooks/useAuth';
 import { deleteAccount } from '@/services/auth';
 import { useNav } from '@/navigation/nav';
@@ -42,7 +43,7 @@ export function RecognitionSettings() {
           icon="shield-checkmark-outline"
           tint={Colors.success}
           label="On-device only"
-          subtitle="Keep speech recognition on your phone (off = Apple's cloud, more accurate)"
+          subtitle="Your voice never leaves this phone"
           value={settings.onDeviceOnly}
           onValueChange={(v) => updateSettings({ onDeviceOnly: v })}
         />
@@ -68,13 +69,27 @@ export function RecognitionSettings() {
         />
       </Card>
 
+      <SectionTitle>Experimental</SectionTitle>
+      <Card padded={false} style={styles.group}>
+        <ToggleRow
+          icon="infinite-outline"
+          tint="#8E8CF0"
+          label="Continuous dictation"
+          subtitle="Keep recording past 45s — each chunk auto-saves, the next begins"
+          value={settings.continuousDictation}
+          onValueChange={(v) => updateSettings({ continuousDictation: v })}
+        />
+      </Card>
       <Text style={styles.explain}>
-        By default VibeFlow uses Apple’s cloud speech recognition — larger and more accurate
-        (the same engine as the system keyboard mic), with no time limit on dictation. Turn on
-        “On-device only” to keep your voice entirely on your phone. On-device recognition is
-        CPU-intensive, so to keep your iPhone cool and protect its battery, on-device dictation
-        runs in ~45-second stretches — a countdown line shows the time left; tap the mic to
-        keep going.
+        Continuous dictation lets long recordings feel limitless: at each 45-second mark
+        your words are saved into the field, then recording resumes automatically. It’s
+        experimental — if a very long recording ever stalls, turn this off to return to the
+        rock-solid single-45s behaviour.
+      </Text>
+
+      <Text style={styles.explain}>
+        Cloud recognition (default) is the larger, more accurate model. On-device keeps
+        everything private but is a little less precise.
       </Text>
 
       <LanguageSheet
@@ -91,28 +106,91 @@ export function RecognitionSettings() {
   );
 }
 
-// ── Formatting: a single "clean it up, or leave it raw" toggle ─────────────────
+// ── Formatting: the on-device text-cleanup pipeline ────────────────────────────
 export function FormattingSettings() {
   const { pop } = useNav();
   const { settings, updateSettings } = useStore();
+  const setCuration = (patch: Partial<CurationOptions>) =>
+    updateSettings({ curation: { ...settings.curation, ...patch } });
+  const c = settings.curation;
 
   return (
     <Screen title="Formatting" subtitle="How your words are cleaned up" onBack={pop}>
+      <SectionTitle>Punctuation & structure</SectionTitle>
+      <Card padded={false} style={styles.group}>
+        <ToggleRow
+          icon="chatbox-ellipses-outline"
+          tint={Colors.brand}
+          label="Spoken punctuation"
+          subtitle="Say ‘comma’, ‘period’, ‘question mark’"
+          value={c.spokenPunctuation}
+          onValueChange={(v) => setCuration({ spokenPunctuation: v })}
+        />
+        <Divider />
+        <ToggleRow
+          icon="return-down-back-outline"
+          tint="#32D4C8"
+          label="Layout commands"
+          subtitle="‘new line’, ‘new paragraph’"
+          value={c.spokenCommands}
+          onValueChange={(v) => setCuration({ spokenCommands: v })}
+        />
+        <Divider />
+        <ToggleRow
+          icon="ellipse-outline"
+          tint="#8E8CF0"
+          label="Auto end period"
+          value={c.autoPeriod}
+          onValueChange={(v) => setCuration({ autoPeriod: v })}
+        />
+      </Card>
+
+      <SectionTitle>Capitalization</SectionTitle>
+      <Card padded={false} style={styles.group}>
+        <ToggleRow
+          icon="text-outline"
+          tint="#FF9F0A"
+          label="Capitalise sentences"
+          value={c.capitalizeSentences}
+          onValueChange={(v) => setCuration({ capitalizeSentences: v })}
+        />
+        <Divider />
+        <ToggleRow
+          icon="chevron-up-circle-outline"
+          tint="#FFB84D"
+          label="Capitalise first letter"
+          value={c.capitalizeFirst}
+          onValueChange={(v) => setCuration({ capitalizeFirst: v })}
+        />
+        <Divider />
+        <ToggleRow
+          icon="person-outline"
+          tint="#FFD60A"
+          label="Fix ‘i’ → ‘I’"
+          value={c.fixPronounI}
+          onValueChange={(v) => setCuration({ fixPronounI: v })}
+        />
+      </Card>
+
+      <SectionTitle>Cleanup</SectionTitle>
       <Card padded={false} style={styles.group}>
         <ToggleRow
           icon="sparkles-outline"
-          tint={Colors.brand}
-          label="Auto-format"
-          subtitle="Clean up punctuation, capitalization & fillers"
-          value={settings.autoFormat}
-          onValueChange={(v) => updateSettings({ autoFormat: v })}
+          tint="#FF6B9D"
+          label="Remove fillers"
+          subtitle="Drop ‘um’, ‘uh’…"
+          value={c.stripFillers}
+          onValueChange={(v) => setCuration({ stripFillers: v })}
+        />
+        <Divider />
+        <ToggleRow
+          icon="copy-outline"
+          tint="#4DC4FF"
+          label="Collapse repeats"
+          value={c.dedupeRepeats}
+          onValueChange={(v) => setCuration({ dedupeRepeats: v })}
         />
       </Card>
-      <Text style={styles.explain}>
-        On (recommended), VibeFlow tidies your dictation as you speak — spoken punctuation
-        (“comma”, “period”), sentence capitalization, layout commands (“new line”) and light
-        cleanup. Turn it off to insert exactly what was heard, unformatted.
-      </Text>
     </Screen>
   );
 }
