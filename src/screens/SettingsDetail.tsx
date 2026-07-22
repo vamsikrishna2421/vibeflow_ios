@@ -43,7 +43,7 @@ export function RecognitionSettings() {
           icon="shield-checkmark-outline"
           tint={Colors.success}
           label="On-device only"
-          subtitle="On by default — turn off for higher-accuracy cloud recognition"
+          subtitle="Keep speech recognition on your phone (off = Apple's cloud, more accurate)"
           value={settings.onDeviceOnly}
           onValueChange={(v) => updateSettings({ onDeviceOnly: v })}
         />
@@ -81,15 +81,16 @@ export function RecognitionSettings() {
         />
       </Card>
       <Text style={styles.explain}>
-        On (recommended), the keyboard mic has no time limit — talk as long as you like and
-        your words stream into the field as you speak. Turn it off for a single ~45-second
-        recording with a countdown line, then a tap to continue.
+        With cloud recognition (the default), Continuous dictation has no time limit — talk as
+        long as you like and your words stream into the field as you speak. With “On-device
+        only” on, dictation always runs in single ~45-second stretches (a countdown line shows
+        the time left; tap the mic again to continue).
       </Text>
 
       <Text style={styles.explain}>
-        On-device (the default) keeps your voice private — it never leaves your phone. Turn
-        “On-device only” off to use Apple’s cloud speech service, a larger, more accurate
-        model (the same one the system keyboard mic uses).
+        By default VibeFlow uses Apple’s cloud speech recognition — larger and more accurate
+        (the same engine as the system keyboard mic). Turn on “On-device only” to keep your
+        voice entirely on your phone.
       </Text>
 
       <LanguageSheet
