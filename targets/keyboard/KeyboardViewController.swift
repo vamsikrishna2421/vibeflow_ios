@@ -1326,10 +1326,11 @@ final class KeyboardViewController: UIInputViewController, UIInputViewAudioFeedb
         store?.set(String(savedTs), forKey: "kbd_inserted_ts")
         lastFlowInserted = text
         smartInsert(text)
-        // Continuous mode streams chunks WHILE still recording — no green success flash;
-        // the mic stays red (listening) and the tail-line keeps flowing. A normal single
-        // dictation still gets the satisfying green confirmation.
-        if groupString("flow_continuous") != "true" { flashMicSuccess() }
+        // Green success flash + return-to-idle ONLY on a real stop (mic is "processing").
+        // A mid-stream continuous chunk arrives while still "listening" → no flash, mic
+        // stays red and the tail-line keeps flowing. (Skipping the flash for ALL continuous
+        // inserts left the mic stuck showing "processing" after the user stopped.)
+        if flowMicState != .listening { flashMicSuccess() }
         updateSuggestions()
     }
 

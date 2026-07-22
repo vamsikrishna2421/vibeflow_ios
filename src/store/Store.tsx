@@ -277,8 +277,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // Privacy setting for the native Flow-Session recognizer (keyboard dictation):
     // it honors on-device recognition when this is not "false".
     setItem('flow_on_device', String(state.settings.onDeviceOnly));
-    // Experimental: chain 45s chunks so long keyboard dictation feels limitless.
-    setItem('flow_continuous', String(state.settings.continuousDictation));
+    // Continuous (limitless) dictation requires CLOUD recognition. On-device keyboard
+    // recording is CPU-capped by iOS in the background, so continuous is unreliable there
+    // (loses text) — engage it ONLY when on-device is OFF. On-device → the proven single
+    // ~45s path; cloud → seamless continuous. Both the flow module and keyboard read this.
+    setItem(
+      'flow_continuous',
+      String(state.settings.continuousDictation && !state.settings.onDeviceOnly),
+    );
     // Personal dictionary for the keyboard: starter romanized Telugu/Hindi + the
     // user's Vocabulary terms, so it won't autocorrect them and can suggest them.
     const learned = Array.from(
