@@ -48,14 +48,17 @@ export interface AppSettings {
   routingMode: RoutingMode;
   trailingSpace: boolean;
   language: string;
+  /** Cloud (false, default) = unlimited continuous dictation. On-device (true) = private,
+   *  but the keyboard mic runs in ~45s stretches (a countdown line + tap to continue).
+   *  Continuous vs 45s is derived from THIS — there is no separate continuous toggle. */
   onDeviceOnly: boolean;
   voiceCommands: boolean;
   smartFormat: boolean;
   autoCopy: boolean;
   haptics: boolean;
-  /** EXPERIMENTAL: chain the keyboard mic's 45s chunks so long dictation feels
-   *  limitless (each chunk auto-saves, then the next begins). Off by default. */
-  continuousDictation: boolean;
+  /** The single Formatting toggle: on = tidy the dictation (the full `curation` pipeline);
+   *  off = insert exactly what was heard. Replaces the old per-transform toggles. */
+  autoFormat: boolean;
 }
 
 /** Everything that survives an app restart. */
@@ -98,11 +101,10 @@ export function defaultSettings(): AppSettings {
     routingMode: 'AUTO',
     trailingSpace: true,
     language: 'en-US',
-    // Cloud (Apple's speech service) recognition by DEFAULT — the proven, reliable path
-    // for continuous dictation (on-device background recording is CPU-capped by iOS, so
-    // continuous is unreliable there). Turning "On-device only" ON keeps everything on the
-    // phone but limits the keyboard to ~45s stretches. (Reverted from the 1.0.71 on-device
-    // default, which destabilized dictation.)
+    // Cloud (Apple's speech service) recognition by DEFAULT → unlimited continuous
+    // dictation (the proven path; on-device background recording is CPU-capped by iOS).
+    // Turning "On-device only" ON keeps everything on the phone but runs the keyboard mic
+    // in ~45s stretches with a countdown. No separate toggle — behaviour follows this flag.
     onDeviceOnly: false,
     voiceCommands: true,
     smartFormat: false,
@@ -110,7 +112,7 @@ export function defaultSettings(): AppSettings {
     //                  "Send to device" clipboard chip on every result. Users who
     //                  want it can re-enable in Settings → Auto-copy after dictation.
     haptics: true,
-    continuousDictation: true, // limitless keyboard dictation, ON by default (1.0.71)
+    autoFormat: true, // tidy dictation by default; off = raw
   };
 }
 

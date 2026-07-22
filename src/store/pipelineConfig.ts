@@ -6,6 +6,7 @@
 import {
   PipelineConfig,
   VoiceCommand,
+  defaultCurationOptions,
   defaultPipelineConfig,
   parseVoiceCommand,
   processPipeline,
@@ -31,11 +32,25 @@ export function buildPipelineConfig(
     if (f) correctionMap[f] = c.to;
   }
 
+  // One Formatting toggle: on → the full cleanup pipeline; off → insert raw text.
+  const curation = settings.autoFormat
+    ? settings.curation
+    : defaultCurationOptions({
+        spokenCommands: false,
+        spokenPunctuation: false,
+        capitalizeSentences: false,
+        capitalizeFirst: false,
+        fixPronounI: false,
+        stripFillers: false,
+        autoPeriod: false,
+        dedupeRepeats: false,
+      });
+
   return defaultPipelineConfig({
     vocabulary: vocabulary.map((t) => t.term),
     snippets: snippetMap,
     corrections: correctionMap,
-    curation: settings.curation,
+    curation,
   });
 }
 

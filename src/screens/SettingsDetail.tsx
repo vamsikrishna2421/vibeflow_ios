@@ -10,7 +10,6 @@ import * as Updates from 'expo-updates';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { PRO_ENABLED } from '@/config/features';
-import { CurationOptions } from '@/core';
 import { useAuth } from '@/hooks/useAuth';
 import { deleteAccount } from '@/services/auth';
 import { useNav } from '@/navigation/nav';
@@ -69,28 +68,11 @@ export function RecognitionSettings() {
         />
       </Card>
 
-      <SectionTitle>Dictation length</SectionTitle>
-      <Card padded={false} style={styles.group}>
-        <ToggleRow
-          icon="infinite-outline"
-          tint="#8E8CF0"
-          label="Continuous dictation"
-          subtitle="No time limit — keep talking; your words stream in as you go"
-          value={settings.continuousDictation}
-          onValueChange={(v) => updateSettings({ continuousDictation: v })}
-        />
-      </Card>
-      <Text style={styles.explain}>
-        With cloud recognition (the default), Continuous dictation has no time limit — talk as
-        long as you like and your words stream into the field as you speak. With “On-device
-        only” on, dictation always runs in single ~45-second stretches (a countdown line shows
-        the time left; tap the mic again to continue).
-      </Text>
-
       <Text style={styles.explain}>
         By default VibeFlow uses Apple’s cloud speech recognition — larger and more accurate
-        (the same engine as the system keyboard mic). Turn on “On-device only” to keep your
-        voice entirely on your phone.
+        (the same engine as the system keyboard mic), with no time limit on dictation. Turn on
+        “On-device only” to keep your voice entirely on your phone; dictation then runs in
+        ~45-second stretches with a countdown line, then a tap to continue.
       </Text>
 
       <LanguageSheet
@@ -107,91 +89,28 @@ export function RecognitionSettings() {
   );
 }
 
-// ── Formatting: the on-device text-cleanup pipeline ────────────────────────────
+// ── Formatting: a single "clean it up, or leave it raw" toggle ─────────────────
 export function FormattingSettings() {
   const { pop } = useNav();
   const { settings, updateSettings } = useStore();
-  const setCuration = (patch: Partial<CurationOptions>) =>
-    updateSettings({ curation: { ...settings.curation, ...patch } });
-  const c = settings.curation;
 
   return (
     <Screen title="Formatting" subtitle="How your words are cleaned up" onBack={pop}>
-      <SectionTitle>Punctuation & structure</SectionTitle>
-      <Card padded={false} style={styles.group}>
-        <ToggleRow
-          icon="chatbox-ellipses-outline"
-          tint={Colors.brand}
-          label="Spoken punctuation"
-          subtitle="Say ‘comma’, ‘period’, ‘question mark’"
-          value={c.spokenPunctuation}
-          onValueChange={(v) => setCuration({ spokenPunctuation: v })}
-        />
-        <Divider />
-        <ToggleRow
-          icon="return-down-back-outline"
-          tint="#32D4C8"
-          label="Layout commands"
-          subtitle="‘new line’, ‘new paragraph’"
-          value={c.spokenCommands}
-          onValueChange={(v) => setCuration({ spokenCommands: v })}
-        />
-        <Divider />
-        <ToggleRow
-          icon="ellipse-outline"
-          tint="#8E8CF0"
-          label="Auto end period"
-          value={c.autoPeriod}
-          onValueChange={(v) => setCuration({ autoPeriod: v })}
-        />
-      </Card>
-
-      <SectionTitle>Capitalization</SectionTitle>
-      <Card padded={false} style={styles.group}>
-        <ToggleRow
-          icon="text-outline"
-          tint="#FF9F0A"
-          label="Capitalise sentences"
-          value={c.capitalizeSentences}
-          onValueChange={(v) => setCuration({ capitalizeSentences: v })}
-        />
-        <Divider />
-        <ToggleRow
-          icon="chevron-up-circle-outline"
-          tint="#FFB84D"
-          label="Capitalise first letter"
-          value={c.capitalizeFirst}
-          onValueChange={(v) => setCuration({ capitalizeFirst: v })}
-        />
-        <Divider />
-        <ToggleRow
-          icon="person-outline"
-          tint="#FFD60A"
-          label="Fix ‘i’ → ‘I’"
-          value={c.fixPronounI}
-          onValueChange={(v) => setCuration({ fixPronounI: v })}
-        />
-      </Card>
-
-      <SectionTitle>Cleanup</SectionTitle>
       <Card padded={false} style={styles.group}>
         <ToggleRow
           icon="sparkles-outline"
-          tint="#FF6B9D"
-          label="Remove fillers"
-          subtitle="Drop ‘um’, ‘uh’…"
-          value={c.stripFillers}
-          onValueChange={(v) => setCuration({ stripFillers: v })}
-        />
-        <Divider />
-        <ToggleRow
-          icon="copy-outline"
-          tint="#4DC4FF"
-          label="Collapse repeats"
-          value={c.dedupeRepeats}
-          onValueChange={(v) => setCuration({ dedupeRepeats: v })}
+          tint={Colors.brand}
+          label="Auto-format"
+          subtitle="Clean up punctuation, capitalization & fillers"
+          value={settings.autoFormat}
+          onValueChange={(v) => updateSettings({ autoFormat: v })}
         />
       </Card>
+      <Text style={styles.explain}>
+        On (recommended), VibeFlow tidies your dictation as you speak — spoken punctuation
+        (“comma”, “period”), sentence capitalization, layout commands (“new line”) and light
+        cleanup. Turn it off to insert exactly what was heard, unformatted.
+      </Text>
     </Screen>
   );
 }
